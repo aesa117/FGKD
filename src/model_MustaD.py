@@ -4,8 +4,6 @@ import math
 import numpy as np
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-import dgl
-from dgl.nn import SAGEConv
 
 # adaped from MustaD
 class GraphConvolution(nn.Module):
@@ -164,57 +162,3 @@ class GCNII_student(nn.Module):
             hidden_emb = self.match_dim(hidden_emb)
 
         return layer_inner, hidden_emb
-
-# adapted from CPF
-class GraphSAGE(nn.Module):
-    def __init__(self, nfeat, nlayers, nhidden, nclass, dropout, aggregator_type):
-        super(GraphSAGE, self).__init__()
-        self.layers = nn.ModuleList()
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.ReLU()
-
-        # input layer
-        self.layers.append(SAGEConv(nfeat, nhidden, aggregator_type))
-        # hidden layers
-        for i in range(nlayers - 1):
-            self.layers.append(SAGEConv(nhidden, nhidden, aggregator_type))
-        # output layer
-        self.layers.append(SAGEConv(nhidden, nclass, aggregator_type))  # activation None
-
-    def forward(self, graph, inputs):
-        h = self.dropout(inputs)
-        for l, layer in enumerate(self.layers):
-            h = layer(graph, h)
-            if l != len(self.layers) - 1:
-                h = self.activation(h)
-                h = self.dropout(h)
-        return h
-
-class GraphSAGE_student(nn.Module):
-    def __init__(self, nfeat, nlayers, nhidden, nclass, dropout, aggregator_type):
-        super(GraphSAGE, self).__init__()
-        self.convs= nn.ModuleList()
-        self.dropout = nn.Dropout(dropout)
-        self.activation = nn.ReLU()
-        self.tlayers = nlayers
-        
-        # input layer
-        self.convs.append(SAGEConv(nfeat, nhidden, aggregator_type))
-        # hidden layers
-        self.convs.append(SAGEConv(nhidden, nhidden, aggregator_type))
-        # output layer
-        self.convs.append(SAGEConv(nhidden, nclass, aggregator_type))  # activation None
-
-    def forward(self, graph, inputs):
-        h = self.dropout(inputs)
-        layer_inner = self.dropout(self.activation(self.convs[0])(graph, h))
-        for i in range(self.tlayers):
-            h = self.convs[1](graph, h)
-            if i != len(self.tlayers) - 1:
-                h = self.activation(h)
-                h = self.dropout(h)
-        h = self.activation(self.convs[2](graph, h))
-        return h
-
-if __name__ == '__main__':
-    pass

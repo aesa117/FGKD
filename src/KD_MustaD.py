@@ -6,9 +6,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
-from model_GCN import *
-from model_GAT import *
-from model_GraphSAGE import *
+from model_MustaD import *
 import uuid
 
 # Training settings
