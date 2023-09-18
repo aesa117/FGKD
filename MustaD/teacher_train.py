@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
-from model_MustaD import *
+from FKD.MustaD.model_MustaD import *
 
 # adapted from MustaD
 

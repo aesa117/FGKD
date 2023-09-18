@@ -5,7 +5,6 @@ import numpy as np
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-# adaped from MustaD
 class GraphConvolution(nn.Module):
     def __init__(self, in_features, out_features, residual=False, variant=False):
         """
