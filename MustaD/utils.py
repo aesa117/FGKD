@@ -7,7 +7,6 @@ import pickle as pkl
 import networkx as nx
 sys.setrecursionlimit(99999) # max depth of recursion
 
-# apated from MustaD
 
 def count_params(model):
     """
@@ -119,14 +118,14 @@ def load_citation(dataset_str="cora"):
     objects = []
     # file open & load
     for i in range(len(names)): 
-        with open("./data/citation/ind.{}.{}".format(dataset_str.lower(), names[i]), 'rb') as f:
+        with open("../planetoid/ind.{}.{}".format(dataset_str.lower(), names[i]), 'rb') as f:
             if sys.version_info > (3, 0):
                 objects.append(pkl.load(f, encoding='latin1'))
             else:
                 objects.append(pkl.load(f))
 
     x, y, tx, ty, allx, ally, graph = tuple(objects)
-    test_idx_reorder = parse_index_file("./data/citation/ind.{}.test.index".format(dataset_str))
+    test_idx_reorder = parse_index_file("../planetoid/ind.{}.test.index".format(dataset_str))
     test_idx_range = np.sort(test_idx_reorder)
 
     if dataset_str == 'citeseer':
@@ -140,7 +139,7 @@ def load_citation(dataset_str="cora"):
         ty_extended[test_idx_range-min(test_idx_range), :] = ty
         ty = ty_extended
     
-    # feature matrix, adjacency matrix, labels 쌓기
+    # Stack feature matrix, adjacency matrix, labels
     features = sp.vstack((allx, tx)).tolil()
     features[test_idx_reorder, :] = features[test_idx_range, :]
     adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
@@ -148,13 +147,13 @@ def load_citation(dataset_str="cora"):
     labels = np.vstack((ally, ty))
     labels[test_idx_reorder, :] = labels[test_idx_range, :]
 
-    # test, train, validation dataset 범위 나누기
+    # divide range of test, train, validation dataset
     idx_test = test_idx_range.tolist()
     idx_train = range(len(y))
     idx_val = range(len(y), len(y)+500)
 
     features = normalize(features)
-    # porting to pytorch - tensor 형태로 변환
+    # porting to pytorch - transform tensor shape
     features = torch.FloatTensor(np.array(features.todense())).float()
     labels = torch.LongTensor(labels)
     labels = torch.max(labels, dim=1)[1]
