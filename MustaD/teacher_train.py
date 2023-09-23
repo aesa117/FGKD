@@ -7,7 +7,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
 from model_MustaD import *
-import uuid
+
+# adapted from MustaD
 
 # Training settings
 parser = argparse.ArgumentParser()
