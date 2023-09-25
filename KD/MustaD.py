@@ -97,14 +97,6 @@ def choose_model(conf):
         raise ValueError(f'Undefined Model.')
     return model
 
-def choose_path(conf):
-    output_dir = Path.cwd().joinpath('outputs', conf['dataset'], conf['teacher'], conf['student'],
-                                     'cascade_random_' + str(conf['division_seed']) + '_' + str(args.labelrate))
-    check_writable(output_dir)
-    cascade_dir = output_dir.joinpath('cascade')
-    check_writable(cascade_dir)
-    return output_dir, cascade_dir
-
 def train():
     """
     Start training with a stored hyperparameters on the dataset
@@ -230,7 +222,7 @@ if __name__ == '__main__':
     teacher = choose_model(teacher_conf)
     
     # student model-specific configuration
-    config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
+    config_path = Path.cwd().joinpath('models', 'mustad.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
     checkpt_file = "./KD_student/student_"+str(args.student)+str(args.data)+str(args.layer)+".pth"
     model = choose_model(conf)
@@ -253,12 +245,6 @@ if __name__ == '__main__':
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
-    
-    # choose output_dir, cascade_dir
-    output_dir, cascade_dir = choose_path(conf)
-    logger = get_logger(output_dir.joinpath('log'))
-    print(output_dir)
-    print(cascade_dir)
     
     # random seed
     np.random.seed(conf['seed'])
@@ -319,8 +305,7 @@ if __name__ == '__main__':
         if bad_counter == 50: # modify patience 200 -> 50
             break
     
-    if args.test:
-        acc = test()
+    acc = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))

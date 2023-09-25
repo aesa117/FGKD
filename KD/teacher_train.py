@@ -18,27 +18,18 @@ from models.model_utils import *
 from data.utils import load_tensor_data, load_ogb_data, check_writable
 from data.get_dataset import get_experiment_config
 
-from utils.logger import get_logger
+# from utils.logger import get_logger
 from utils.metrics import accuracy
 
 # adapted from MustaD & CPF
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    # add model type argument (ex. GCNII, GAT, GraphSAGE)
     parser.add_argument('--model', default='GCNII', help='model type')
     parser.add_argument('--dataset', default='cora', help='dateset')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--labelrate', type=int, default=20, help='Label rate')
     return parser.parse_args()
-
-def choose_path(conf):
-    output_dir = Path.cwd().joinpath('outputs', conf['dataset'], conf['teacher'],
-                                     'cascade_random_' + str(conf['division_seed']) + '_' + str(args.labelrate))
-    check_writable(output_dir)
-    cascade_dir = output_dir.joinpath('cascade')
-    check_writable(cascade_dir)
-    return output_dir, cascade_dir
 
 def choose_model(conf):
     if conf['model_name'] == 'GCN':
@@ -94,7 +85,7 @@ def choose_model(conf):
                       variant=False).to(conf['device'])
     return model
 
-def train(all_logits, dur, epoch):
+def train():
     model.train()
     optimizer.zero_grad()
     if conf['model_name'] == 'GCN':
@@ -117,11 +108,6 @@ def train(all_logits, dur, epoch):
     return loss_train.item(),acc_train.item()
 
 def validate():
-    """
-    Validate the model
-    make sure teacher, student, optimizer, node features, adjacency, validation index is defined aforehead
-    :return: validation loss, validation accuracy
-    """
     model.eval()
 
     with torch.no_grad():
@@ -141,7 +127,7 @@ def validate():
 
         return loss_val.item(),acc_val.item()
 
-def test(conf):
+def test():
     model.load_state_dict(torch.load(checkpt_file))
     model.eval()
     with torch.no_grad():
@@ -183,12 +169,6 @@ if __name__ == '__main__':
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
-    
-    # choose output_dir, cascade_dir
-    output_dir, cascade_dir = choose_path(conf)
-    logger = get_logger(output_dir.joinpath('log'))
-    print(output_dir)
-    print(cascade_dir)
     
     # random seed
     np.random.seed(conf['seed'])
@@ -251,8 +231,7 @@ if __name__ == '__main__':
         if bad_counter == 50: # modify patience 200 -> 50
             break
     
-    if args.test:
-        acc = test()
+    acc = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))

@@ -90,26 +90,7 @@ def choose_model(conf):
         raise ValueError(f'Undefined Model.')
     return model
 
-def choose_path(conf):
-    output_dir = Path.cwd().joinpath('outputs', conf['dataset'], conf['teacher'], conf['student'],
-                                     'cascade_random_' + str(conf['division_seed']) + '_' + str(args.labelrate))
-    check_writable(output_dir)
-    cascade_dir = output_dir.joinpath('cascade')
-    check_writable(cascade_dir)
-    return output_dir, cascade_dir
-
-
-    """Form variants as group with size of num_workers"""
-    for variant in variants:
-        args.dataset, args.model, args.seed = variant
-        yield copy.deepcopy(args)
-
 def train():
-    """
-    Start training with a stored hyperparameters on the dataset
-    :make sure teacher, student, optimizer, node features, adjacency, train index is defined aforehead
-    :return: train loss, train accuracy
-    """
     teacher.eval()
     model.train()
     optimizer.zero_grad()
@@ -143,7 +124,7 @@ def train():
     s_x = s_hidden[idx_train]
     loss_hidden = kl_kernel(t_x, s_x)
 
-    # loss_final
+    # loss_final- lbd_pred, lbe_embd are still not defined
     loss_train = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
     loss_train.backward()
     optimizer.step()
@@ -192,7 +173,7 @@ def validate():
         s_x = s_hidden[idx_val]
         loss_hidden = kl_kernel(t_x, s_x)
 
-        # loss_final
+        # loss_final- lbd_pred, lbe_embd are still not defined
         loss_val = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
         acc_val = accuracy(s_output[idx_val], labels[idx_val].to(device))
         return loss_val.item(),acc_val.item()
@@ -250,12 +231,6 @@ if __name__ == '__main__':
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
-    
-    # choose output_dir, cascade_dir
-    output_dir, cascade_dir = choose_path(conf)
-    logger = get_logger(output_dir.joinpath('log'))
-    print(output_dir)
-    print(cascade_dir)
     
     # random seed
     np.random.seed(conf['seed'])
@@ -318,8 +293,7 @@ if __name__ == '__main__':
         if bad_counter == 50: # modify patience 200 -> 50
             break
     
-    if args.test:
-        acc = test()
+    acc = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
