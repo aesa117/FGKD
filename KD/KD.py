@@ -16,12 +16,20 @@ from utils.logger import output_results, get_logger
 from collections import defaultdict, namedtuple
 from utils.metrics import accuracy
 
+from mask import *
+from models.selector import *
+
+from pytorch_metric_learning import losses, miners
+from sklearn.metrics.cluster import normalized_mutual_info_score
+# from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 
 def arg_parse(parser):
     parser.add_argument('--dataset', type=str, default='cora', help='Dataset')
     parser.add_argument('--teacher', type=str, default='GCN', help='Teacher Model')
     parser.add_argument('--student', type=str, default='PLP', help='Student Model')
+    parser.add_argument('--lbd_pred', type=float, default=0, help='lambda for prediction loss')
+    parser.add_argument('--lbd_embd', type=float, default=0, help='lambda for embedding loss')
     parser.add_argument('--distill', action='store_false', default=True, help='Distill or not')
     parser.add_argument('--device', type=int, default=3, help='CUDA Device')
     parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
@@ -90,6 +98,18 @@ def choose_model(conf):
         raise ValueError(f'Undefined Model.')
     return model
 
+def selector_model_init(conf):
+    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
+        hidden_embedding = 64
+    else:
+        hidden_embedding = 128
+    selector_model = MLP(num_layers=3,
+                         input_dim=hidden_embedding,
+                         hidden_dim=hidden_embedding, 
+                         output_dim=hidden_embedding,
+                         dropout=0.5)
+    return selector_model
+
 def train():
     teacher.eval()
     model.train()
@@ -113,6 +133,11 @@ def train():
     loss_CE = F.nll_loss(s_out[idx_train], labels[idx_train].to(device))
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(device))
 
+    # mask selection - training and extract masks for clustering score
+    updated_masks = selection(selector_model, t_hidden, labels, normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
+    best_mask = updated_masks[0]
+    masked_t_hidden = best_mask * t_hidden
+    
     # loss_task
     t_output = t_output/temperature
     t_y = t_output[idx_train]
@@ -120,7 +145,7 @@ def train():
     loss_task = kl_kernel(t_y, s_y)
 
     # loss_hidden
-    t_x = t_hidden[idx_train]
+    t_x = masked_t_hidden[idx_train]
     s_x = s_hidden[idx_train]
     loss_hidden = kl_kernel(t_x, s_x)
 
@@ -207,12 +232,10 @@ if __name__ == '__main__':
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
     t_PATH = "./teacher/teacher_"+str(args.teacher)+str(args.data)+".pth"
-    
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
     checkpt_file = "./KD_student/student_"+str(args.student)+str(args.data)+str(args.layer)+".pth"
-    
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
@@ -227,7 +250,6 @@ if __name__ == '__main__':
         conf['device'] = torch.device("cuda:" + str(args.device))
     else:
         conf['device'] = torch.device("cpu")
-    
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
@@ -247,11 +269,13 @@ if __name__ == '__main__':
     print('We have %d nodes.' % G.number_of_nodes())
     print('We have %d edges.' % G.number_of_edges())
     
+    # cuda device setting & cuda apply to feature mat, adjacency mat
     cudaid = "cuda:"+str(args.dev)
     device = torch.device(cudaid)
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
 
+    # choose model type & setting optimizer for model
     teacher = choose_model(teacher_conf)
     model = choose_model(conf)
     if conf['model_name'] == 'GCNII':
@@ -264,6 +288,25 @@ if __name__ == '__main__':
     else:
         optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=conf['learning_rate'],
                                weight_decay=conf['weight_decay'])
+    
+    # selector model generate
+    selector_model = selector_model_init(conf)
+    selector_loss = losses.TripletMarginLoss(margin=0.3, 
+                                            swap=False,
+                                            smooth_loss=False,
+                                            triplets_per_anchor="all")
+    mining_func = miners.TripletMarginMiner(margin=0.3, 
+                                                     type_of_triplets="semihard")
+    selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.01, weight_decay=0.001)
+    
+    # initialize mask
+    num_masks = 20
+    if conf['model_name'] in ['GCN', 'GAT', 'GCNII']:
+        data_size = 64
+    else: # GraphSAGE
+        data_size = 128
+    masks = get_new_random_masks(num_masks, data_size, data_size/2)
+    
     
     t_total = time.time()
     bad_counter = 0
