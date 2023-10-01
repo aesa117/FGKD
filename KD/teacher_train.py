@@ -15,7 +15,7 @@ import dgl
 from models.model_KD import *
 from models.model_utils import *
 
-from data.utils import load_tensor_data, load_ogb_data, check_writable
+from data.utils import load_tensor_data, check_writable
 from data.get_dataset import get_experiment_config
 
 # from utils.logger import get_logger
