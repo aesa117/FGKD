@@ -25,8 +25,8 @@ from utils.metrics import accuracy
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default='GCNII', help='model type')
     parser.add_argument('--dataset', default='cora', help='dateset')
+    parser.add_argument('--teacher', default='GCNII', help='model type')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--labelrate', type=int, default=20, help='Label rate')
     return parser.parse_args()
@@ -161,10 +161,11 @@ if __name__ == '__main__':
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
     
     # device
-    if args.device > 0:
-        conf['device'] = torch.device("cuda:" + str(args.device))
-    else:
-        conf['device'] = torch.device("cpu")
+    # if args.device > 0:
+    #     conf['device'] = torch.device("cuda:" + str(args.device))
+    # else:
+    #     conf['device'] = torch.device("cpu")
+    conf['device'] = torch.device("cuda:" + str(args.device))
     
     # print configuration dict
     conf = dict(conf, **args.__dict__)

@@ -13,9 +13,9 @@ def get_experiment_config(config_path):
 
 def generate_data_path(dataset, dataset_source):
     if dataset_source == 'planetoid':
-        return '../../planetoid'
+        return 'data/planetoid'
     elif dataset_source == 'npz':
-        return '../../npz/' + dataset + '.npz'
+        return 'data/npz/' + dataset + '.npz'
     else:
         print(dataset_source)
         raise ValueError(f'The "dataset_source" must be set to "planetoid" or "npz"')
