@@ -15,7 +15,7 @@ import dgl
 from models.model_KD import *
 from models.model_utils import *
 
-from data.utils import load_tensor_data, load_ogb_data, check_writable
+from data.utils import load_tensor_data, check_writable
 from data.get_dataset import get_experiment_config
 
 from utils.logger import get_logger
@@ -94,7 +94,7 @@ def choose_model(conf):
                       variant=False).to(conf['device'])
     return model
 
-def train(all_logits, dur, epoch):
+def train():
     model.train()
     optimizer.zero_grad()
     if conf['model_name'] == 'GCN':
@@ -141,7 +141,7 @@ def validate():
 
         return loss_val.item(),acc_val.item()
 
-def test(conf):
+def test():
     model.load_state_dict(torch.load(checkpt_file))
     model.eval()
     with torch.no_grad():
@@ -183,12 +183,6 @@ if __name__ == '__main__':
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
-    
-    # choose output_dir, cascade_dir
-    output_dir, cascade_dir = choose_path(conf)
-    logger = get_logger(output_dir.joinpath('log'))
-    print(output_dir)
-    print(cascade_dir)
     
     # random seed
     np.random.seed(conf['seed'])

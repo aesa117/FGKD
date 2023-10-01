@@ -17,12 +17,15 @@ from utils.logger import output_results, get_logger
 from collections import defaultdict, namedtuple
 from utils.metrics import accuracy
 
-
+from mask import *
+from models.selector import *
 
 def arg_parse(parser):
     parser.add_argument('--dataset', type=str, default='cora', help='Dataset')
     parser.add_argument('--teacher', type=str, default='GCN', help='Teacher Model')
     parser.add_argument('--student', type=str, default='PLP', help='Student Model')
+    parser.add_argument('--lbd_pred', type=float, default=0, help='lambda for prediction loss')
+    parser.add_argument('--lbd_embd', type=float, default=0, help='lambda for embedding loss')
     parser.add_argument('--distill', action='store_false', default=True, help='Distill or not')
     parser.add_argument('--device', type=int, default=3, help='CUDA Device')
     parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
@@ -97,13 +100,17 @@ def choose_model(conf):
         raise ValueError(f'Undefined Model.')
     return model
 
-def choose_path(conf):
-    output_dir = Path.cwd().joinpath('outputs', conf['dataset'], conf['teacher'], conf['student'],
-                                     'cascade_random_' + str(conf['division_seed']) + '_' + str(args.labelrate))
-    check_writable(output_dir)
-    cascade_dir = output_dir.joinpath('cascade')
-    check_writable(cascade_dir)
-    return output_dir, cascade_dir
+def selector_model(conf):
+    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
+        hidden_embedding = 64
+    else:
+        hidden_embedding = 128
+    selector_model = MLP(num_layers=3,
+                         input_dim=hidden_embedding,
+                         hidden_dim=hidden_embedding, 
+                         output_dim=hidden_embedding,
+                         dropout=0.5)
+    return selector_model
 
 def train():
     """
@@ -253,12 +260,6 @@ if __name__ == '__main__':
     # print configuration dict
     conf = dict(conf, **args.__dict__)
     print(conf)
-    
-    # choose output_dir, cascade_dir
-    output_dir, cascade_dir = choose_path(conf)
-    logger = get_logger(output_dir.joinpath('log'))
-    print(output_dir)
-    print(cascade_dir)
     
     # random seed
     np.random.seed(conf['seed'])

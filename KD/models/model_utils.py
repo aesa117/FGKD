@@ -5,7 +5,7 @@ import torch
 def get_training_config(config_path, model_name):
     with open(config_path, 'r') as conf:
         full_config = yaml.load(conf, Loader=yaml.FullLoader)
-    specific_config = dict(full_config['global'], **full_config[model_name])
+    specific_config = dict(**full_config[model_name])
     specific_config['model_name'] = model_name
     return specific_config
 
