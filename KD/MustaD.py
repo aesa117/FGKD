@@ -237,7 +237,7 @@ if __name__ == '__main__':
     teacher = choose_model(teacher_conf)
     
     # student model-specific configuration
-    config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
+    config_path = Path.cwd().joinpath('models', 'mustad.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
     checkpt_file = "./KD_student/student_"+str(args.student)+str(args.data)+str(args.layer)+".pth"
     model = choose_model(conf)
@@ -320,8 +320,7 @@ if __name__ == '__main__':
         if bad_counter == 50: # modify patience 200 -> 50
             break
     
-    if args.test:
-        acc = test()
+    acc = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))

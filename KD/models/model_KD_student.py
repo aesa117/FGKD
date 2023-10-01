@@ -190,9 +190,9 @@ class GAT_student(nn.Module):
         logits = logits.mean(1)
         return logits, prior, att
 
-class GCN(nn.Module):
+class GCN_student(nn.Module):
     def __init__(self, g, in_feats, n_hidden, t_hidden, n_classes, n_layers, activation, dropout):
-        super(GCN, self).__init__()
+        super(GCN_student, self).__init__()
         self.g = g
         self.layers = nn.ModuleList()
         # input layer

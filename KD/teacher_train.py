@@ -18,27 +18,18 @@ from models.model_utils import *
 from data.utils import load_tensor_data, check_writable
 from data.get_dataset import get_experiment_config
 
-from utils.logger import get_logger
+# from utils.logger import get_logger
 from utils.metrics import accuracy
 
 # adapted from MustaD & CPF
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    # add model type argument (ex. GCNII, GAT, GraphSAGE)
     parser.add_argument('--model', default='GCNII', help='model type')
     parser.add_argument('--dataset', default='cora', help='dateset')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--labelrate', type=int, default=20, help='Label rate')
     return parser.parse_args()
-
-def choose_path(conf):
-    output_dir = Path.cwd().joinpath('outputs', conf['dataset'], conf['teacher'],
-                                     'cascade_random_' + str(conf['division_seed']) + '_' + str(args.labelrate))
-    check_writable(output_dir)
-    cascade_dir = output_dir.joinpath('cascade')
-    check_writable(cascade_dir)
-    return output_dir, cascade_dir
 
 def choose_model(conf):
     if conf['model_name'] == 'GCN':
@@ -117,11 +108,6 @@ def train():
     return loss_train.item(),acc_train.item()
 
 def validate():
-    """
-    Validate the model
-    make sure teacher, student, optimizer, node features, adjacency, validation index is defined aforehead
-    :return: validation loss, validation accuracy
-    """
     model.eval()
 
     with torch.no_grad():
@@ -245,8 +231,7 @@ if __name__ == '__main__':
         if bad_counter == 50: # modify patience 200 -> 50
             break
     
-    if args.test:
-        acc = test()
+    acc = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
