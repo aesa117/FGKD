@@ -22,6 +22,10 @@ class MLP(nn.Module):
     
     def forward(self, input):
         hidden = input
-        for layer in range(self.num_layers - 1):
-            hidden = F.relu(self.layers[layer](self.dropout(hidden)))
-        return self.layers[self.num_layers - 1](self.dropout(hidden))
+        for l, layer in enumerate(self.layers):
+            hidden = layer(hidden)
+            if l != len(self.layers) - 1:
+                hidden = F.relu(hidden)
+                hidden = self.dropout(hidden)
+        
+        return hidden

@@ -21,13 +21,16 @@ from utils.metrics import accuracy
 from mask import *
 from models.selector import *
 
+from pytorch_metric_learning import losses, miners
+from sklearn.metrics.cluster import normalized_mutual_info_score
+
 def arg_parse(parser):
     parser.add_argument('--dataset', type=str, default='cora', help='Dataset')
     parser.add_argument('--teacher', type=str, default='GCN', help='Teacher Model')
     parser.add_argument('--student', type=str, default='PLP', help='Student Model')
     parser.add_argument('--lbd_embd', type=int, default=1, help='selected embedding loss rate')
     parser.add_argument('--distill', action='store_false', default=True, help='Distill or not')
-    parser.add_argument('--device', type=int, default=3, help='CUDA Device')
+    parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
     parser.add_argument('--labelrate', type=int, default=20, help='label rate')
     parser.add_argument('--mlp_layers', type=int, default=2, help='MLP layer, 0 means not add feature mlp/lr')
@@ -57,6 +60,18 @@ def choose_model(conf, G, features, labels, byte_idx_train, labels_one_hot):
         raise ValueError(f'Undefined Model.')
     return model
 
+def selector_model_init(conf):
+    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
+        hidden_embedding = 64
+    else:
+        hidden_embedding = 128
+    selector_model = MLP(num_layers=3,
+                         input_dim=hidden_embedding,
+                         hidden_dim=hidden_embedding, 
+                         output_dim=hidden_embedding,
+                         dropout=0.5)
+    return selector_model
+
 def train():
     """
     Start training with a stored hyperparameters on the dataset
@@ -68,20 +83,38 @@ def train():
     optimizer.zero_grad()
 
     # loss_CE
-    t_output, t_hidden = teacher(G.ndata['feat', labels_init])[0:1]
-    s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:1]
+    if teacher_conf['model_name'] == 'GCN':
+        t_output, t_hidden = teacher(G.ndata['feat'])
+        s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+    elif teacher_conf['model_name'] == 'GAT':
+        t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
+        s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+    elif teacher_conf['model_name'] == 'GraphSAGE':
+        t_output, t_hidden = teacher(G, G.ndata['feat'])
+        s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+    elif teacher_conf['model_name'] == 'GCNII':
+        t_output, t_hidden = teacher(features, adj)
+        s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+    else:
+        raise ValueError(f'Undefined Model')
+    
     s_out = F.log_softmax(s_output, dim=1)
     t_out = F.log_softmax(t_output, dim=1)
     loss_dist = my_loss(s_out[idx_no_train], t_out[idx_no_train], 2).to(conf['device'])
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
 
-    # # loss_hidden (selection 추가 버전 구현하기)
-    # t_x = t_hidden[idx_train]
-    # s_x = s_hidden[idx_train]
-    # loss_hidden = kl_kernel(t_x, s_x)
+    # mask selection - training and extract masks for clustering score
+    updated_masks = selection(selector_model, t_hidden, labels, normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
+    best_mask = updated_masks[0]
+    masked_t_hidden = best_mask * t_hidden
+    
+    # loss_hidden
+    t_x = masked_t_hidden[idx_train]
+    s_x = s_hidden[idx_train]
+    loss_hidden = kl_kernel(t_x, s_x)
 
     # loss_final
-    loss_train = loss_dist
+    loss_train = loss_dist + args.lbd_embd*loss_hidden
     loss_train.backward()
     optimizer.step()
 
@@ -103,20 +136,38 @@ def validate():
     model.eval()
 
     with torch.no_grad():
-        t_output, t_hidden = teacher(G.ndata['feat', labels_init])[0:1]
-        s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:1]
+        if teacher_conf['model_name'] == 'GCN':
+            t_output, t_hidden = teacher(G.ndata['feat'])
+            s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+        elif teacher_conf['model_name'] == 'GAT':
+            t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
+            s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+        elif teacher_conf['model_name'] == 'GraphSAGE':
+            t_output, t_hidden = teacher(G, G.ndata['feat'])
+            s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+        elif teacher_conf['model_name'] == 'GCNII':
+            t_output, t_hidden = teacher(features, adj)
+            s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
+        else:
+            raise ValueError(f'Undefined Model')
+        
         s_out = F.log_softmax(s_output, dim=1)
         t_out = F.log_softmax(t_output, dim=1)
         loss_dist = my_loss(s_out[idx_no_train], t_out[idx_no_train], 2).to(conf['device'])
         acc_val = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
 
-        # # loss_hidden
-        # t_x = t_hidden[idx_val]
-        # s_x = s_hidden[idx_val]
-        # loss_hidden = kl_kernel(t_x, s_x)
+        # mask selection - training and extract masks for clustering score
+        updated_masks = selection(selector_model, t_hidden, labels, normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
+        best_mask = updated_masks[0]
+        masked_t_hidden = best_mask * t_hidden
+        
+        # loss_hidden
+        t_x = masked_t_hidden[idx_train]
+        s_x = s_hidden[idx_train]
+        loss_hidden = kl_kernel(t_x, s_x)
 
         # loss_final
-        loss_val = loss_dist
+        loss_val = loss_dist + args.lbd_embd*loss_hidden
         acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
         return loss_val.item(),acc_val.item()
 
@@ -140,12 +191,12 @@ if __name__ == '__main__':
     # teacher model-specific configuration
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
-    t_PATH = "./teacher/teacher_"+str(args.teacher)+str(args.data)+".pth"
+    t_PATH = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
-    checkpt_file = "./KD_student/student_"+str(args.student)+str(args.data)+str(args.layer)+".pth"
+    checkpt_file = "./KD_student/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
     
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
@@ -156,11 +207,8 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
     
-    # device
-    if args.device > 0:
-        conf['device'] = torch.device("cuda:" + str(args.device))
-    else:
-        conf['device'] = torch.device("cpu")
+    conf['device'] = torch.device("cuda:" + str(args.device))
+    teacher_conf['device'] = torch.device("cuda:" + str(args.device))
     
     # print configuration dict
     conf = dict(conf, **args.__dict__)
@@ -186,11 +234,13 @@ if __name__ == '__main__':
     byte_idx_train[idx_train] = True
     labels_init = initialize_label(idx_train, labels_one_hot).to(conf['device'])
     
-    # device = conf['device']
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
 
+    # choose model type & setting optimizer for model
     teacher = choose_model(teacher_conf)
+    teacher.load_state_dict(torch.load(t_PATH))
+    teacher.eval()
     model = choose_model(conf, G, G.ndata['feat'], labels, byte_idx_train, labels_one_hot)
     if conf['model_name'] == 'GCNII':
         if conf['dataset'] == 'pubmed':
@@ -202,6 +252,24 @@ if __name__ == '__main__':
     else:
         optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=conf['learning_rate'],
                                weight_decay=conf['weight_decay'])
+    
+    # selector model generate
+    selector_model = selector_model_init(conf)
+    selector_loss = losses.TripletMarginLoss(margin=0.3, 
+                                            swap=False,
+                                            smooth_loss=False,
+                                            triplets_per_anchor="all")
+    mining_func = miners.TripletMarginMiner(margin=0.3, 
+                                                     type_of_triplets="semihard")
+    selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.01, weight_decay=0.001)
+    
+    # initialize mask
+    num_masks = 20
+    if conf['model_name'] in ['GCN', 'GAT', 'GCNII']:
+        data_size = 64
+    else: # GraphSAGE
+        data_size = 128
+    masks = get_new_random_masks(num_masks, data_size, data_size/2)
     
     t_total = time.time()
     bad_counter = 0
@@ -228,7 +296,7 @@ if __name__ == '__main__':
         else:
             bad_counter += 1
 
-        if bad_counter == 50: # modify patience 200 -> 50
+        if bad_counter == 200: # modify patience 200 -> 50
             break
     
     acc = test()

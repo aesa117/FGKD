@@ -3,15 +3,18 @@ import torch.nn as nn
 import numpy as np
 from models.selector import *
 
+# adapted from Feature Importance Ranking for Deep Learning
+
 def get_new_random_masks(num_masks, data_size, unmasked_data_size):
-    masks_zero = np.zeors(shape=(num_masks, data_size-unmasked_data_size))
-    masks_one = np.ones(shape=(num_masks, unmasked_data_size))
+    masks_zero = np.zeros(shape=(num_masks, data_size-int(unmasked_data_size)))
+    masks_one = np.ones(shape=(num_masks, int(unmasked_data_size)))
     masks = np.concatenate([masks_zero, masks_one], axis=1)
     masks_permuted = np.apply_along_axis(np.random.permutation, 1, masks)
 
     return masks_permuted
 
 def get_mutation_masks(masks, divide_val):
+    masks = masks.numpy()
     def get_mutation_mask(mask):
         # 10%, 50% mutation 
         num_mutation_per_mask = int(len(mask)/divide_val)
@@ -33,7 +36,9 @@ def selection(model, t_hiddens, labels, clustering_score, loss, optimizer, masks
     with torch.no_grad():
         # calculate clustering score for all masks
         for i in range(num_mask):
-            masked_hiddens = t_hiddens * masks[i]
+            masked_hiddens = t_hiddens.mul(masks[i])
+            print(type(masked_hiddens))
+            print(masked_hiddens.get_device())
             model_output = model(masked_hiddens)
             score = clustering_score(model_output, labels)
             if i == 0:
@@ -54,6 +59,8 @@ def selection(model, t_hiddens, labels, clustering_score, loss, optimizer, masks
         new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4*2):int(num_mask/4*3)], 2))
         # top 76%~100% of masks => random generate
         new_mask = np.append(new_mask, get_new_random_masks(int(num_mask/4), data_size, data_size/2))
+        
+        new_mask = torch.Tensor(new_mask)
         # best loss mask
         best_mask = new_mask[0]
         
