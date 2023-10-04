@@ -76,7 +76,7 @@ def selection(model, t_hiddens, labels, loss, optimizer, masks, num_mask, data_s
     loss_metric.backward()
     optimizer.step()
     
-    return new_mask
+    return new_mask, loss_metric
 
 def selection_val(model, t_hiddens, labels, loss, optimizer, masks, num_mask, data_size):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -88,6 +88,7 @@ def selection_val(model, t_hiddens, labels, loss, optimizer, masks, num_mask, da
             masked_hiddens = t_hiddens.mul(masks[i]).to(device)
             model_output = model(masked_hiddens)
             loss_metric = loss(model_output, labels)
+            loss_metric = loss_metric.to(cpu)
             # score = clustering_score(model_output.to(cpu), labels.to(cpu))
             if i == 0:
                 mask_losses = np.array([loss_metric])
@@ -97,17 +98,23 @@ def selection_val(model, t_hiddens, labels, loss, optimizer, masks, num_mask, da
         # sort mask_losses list for each metric loss (ascending order)
         sorted_index = np.argsort(mask_losses)
         sorted_masks = masks[sorted_index]
+        sorted_masks = sorted_masks.to(cpu).numpy()
         
         # mask update
         # top 25% of masks => preserve
         new_mask = sorted_masks[0:int(num_mask/4)]
         # top 26%~50% of masks => 10% mutation
-        new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4):int(num_mask/4*2)], 10))
+        new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4):int(num_mask/4*2)], 10), axis=0)
         # top 51%~75% of masks => 50% mutation
-        new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4*2):int(num_mask/4*3)], 2))
+        new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4*2):int(num_mask/4*3)], 2), axis=0)
         # top 76%~100% of masks => random generate
-        new_mask = np.append(new_mask, get_new_random_masks(int(num_mask/4), data_size, int(data_size/2)))
+        new_mask = np.append(new_mask, get_new_random_masks(int(num_mask/4), data_size, int(data_size/2)), axis=0)
+
+        new_mask = torch.Tensor(new_mask).to(device)
+        best_mask = new_mask[0]
+        best_masked = t_hiddens.mul(best_mask).to(device)
         
-        new_mask = torch.Tensor(new_mask)
+        output = model(best_masked)
+        loss_metric = loss(output, labels)
     
-    return new_mask
+    return new_mask, loss_metric.item()

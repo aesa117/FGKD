@@ -95,13 +95,15 @@ def choose_model(conf):
 
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        hidden_embedding = 64
+        embedding_size = 64
+        hidden_embedding = 32
     else:
-        hidden_embedding = 128
-    selector_model = MLP(num_layers=3,
-                         input_dim=hidden_embedding,
+        embedding_size = 128
+        hidden_embedding = 64
+    selector_model = MLP(num_layers=5,
+                         input_dim=embedding_size,
                          hidden_dim=hidden_embedding, 
-                         output_dim=hidden_embedding,
+                         output_dim=embedding_size,
                          dropout=0.5)
     return selector_model
 
@@ -131,14 +133,12 @@ def train():
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
 
     # mask selection - training and extract masks for clustering score
-    updated_masks = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, data_size)
-    best_mask = updated_masks[0].transpose()
-    print(best_mask.shape)
-    print(t_hidden[idx_train].shape)
+    updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, data_size)
+    best_mask = updated_masks[0]
+    hidden_embedding = t_hidden[idx_train]
     
-    # Only feature with mask value non-zero
-    masked_t_hidden = t_hidden[idx_train].mul(best_mask!=0)
-    print(masked_t_hidden.shape)
+    idx = torch.nonzero(best_mask!=0).T
+    masked_t_hidden = hidden_embedding[:, idx]
     
     # loss_task
     t_output = t_output/temperature
@@ -149,7 +149,7 @@ def train():
     # loss_hidden
     t_x = masked_t_hidden
     s_x = s_hidden[idx_train]
-    print(t_x.shape, s_x.shape)
+    #print(t_x.shape, s_x.shape)
     loss_hidden = kl_kernel(t_x, s_x)
 
     # loss_final
@@ -157,7 +157,7 @@ def train():
     loss_train.backward()
     optimizer.step()
 
-    return loss_train.item(),acc_train.item()
+    return loss_train.item(),acc_train.item(), sel_loss
 
 def kl_kernel(t_x, s_x):
     kl_loss_op = torch.nn.KLDivLoss(reduction='none')
@@ -195,9 +195,12 @@ def validate():
         loss_CE = F.nll_loss(s_out[idx_val], labels[idx_val].to(conf['device']))
         acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
         
-        updated_masks = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, data_size)
+        updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, data_size)
         best_mask = updated_masks[0]
-        masked_t_hidden = t_hidden[idx_val].mul(best_mask)
+        hidden_embedding = t_hidden[idx_train]
+        
+        idx = torch.nonzero(best_mask!=0).T
+        masked_t_hidden = hidden_embedding[:, idx]
 
         # loss_task
         t_y = t_output[idx_val]
@@ -205,13 +208,13 @@ def validate():
         loss_task = kl_kernel(t_y, s_y)
 
         # loss_hidden
-        t_x = t_hidden[idx_val]
+        t_x = masked_t_hidden
         s_x = s_hidden[idx_val]
         loss_hidden = kl_kernel(t_x, s_x)
 
         # loss_final- lbd_pred, lbe_embd are still not defined
         loss_val = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
-        return loss_val.item(),acc_val.item()
+        return loss_val.item(),acc_val.item(),sel_loss
 
 def test():
     """
@@ -249,6 +252,7 @@ if __name__ == '__main__':
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
     checkpt_file = "./KD_student/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
+    
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
@@ -260,6 +264,7 @@ if __name__ == '__main__':
     
     conf['device'] = torch.device("cuda:" + str(args.device))
     teacher_conf['device'] = torch.device("cuda:" + str(args.device))
+    cpu = torch.device("cpu")
     
     # print configuration dict
     conf = dict(conf, **args.__dict__)
@@ -326,16 +331,12 @@ if __name__ == '__main__':
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train = train()
-        loss_val, acc_val = validate()
+        loss_train, acc_train, sel_loss_train = train()
+        loss_val, acc_val, sel_loss_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),
-            'train',
-            'loss:{:.3f}'.format(loss_train),
-            'acc:{:.2f}'.format(acc_train*100),
-            '| val',
-            'loss:{:.3f}'.format(loss_val),
-            'acc:{:.2f}'.format(acc_val*100))
+            print('Epoch:{:04d}'.format(epoch+1),'train','loss:{:.3f}'.format(loss_train),'acc:{:.2f}'.format(acc_train*100),
+            '| val','loss:{:.3f}'.format(loss_val),'acc:{:.2f}'.format(acc_val*100))
+            print('selector training loss : {:.3f}'.format(sel_loss_train), 'validation loss : {:.3f}'.format(sel_loss_val))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
@@ -352,4 +353,4 @@ if __name__ == '__main__':
     
     print('The number of parameters in the student: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print("Test" if args.test else "Val","acc.:{:.2f}".format(acc*100))
+    print("Test acc.:{:.2f}".format(acc*100))

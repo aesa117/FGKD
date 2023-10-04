@@ -1,5 +1,5 @@
 # teacher
-python3 -u teacher_train.py --dataset cora --student GCNII
+python3 -u teacher_train.py --dataset cora --teacher GCNII
 
 # student baseline
 python3 -u student_baseline.py --dataset cora --teacher GCNII
