@@ -1,3 +1,9 @@
+global:
+  seed: 2023
+  loss_alpha: 0.1
+  optimizer: 'Adam'
+  ground: False
+
 # specific configurations of each model
 GCN:
   num_layers: 2
@@ -39,3 +45,16 @@ GCNII:
   dropout: 0.6
   alpha: 0.1
   lamda: 0.5
+PLP:
+  num_layers: 10
+  reduced_dim: 64
+  learning_rate: 0.01
+  dropout: 0.8
+  weight_decay: 0.01
+  temp: 1.0
+  coefficient_dropout: 0.1
+  att_dropout: 0.3
+  lr_ratio: 0 # Weight of linear regression
+  beta: 0
+  att: True
+  layer_flag: False

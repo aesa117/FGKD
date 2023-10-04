@@ -48,26 +48,6 @@ def preprocess_features(model_name, features):
     return features
 
 
-def load_ogb_data(dataset, device):
-    from ogb.nodeproppred import DglNodePropPredDataset
-    data = DglNodePropPredDataset(name="ogbn-"+dataset, root='data')
-    splitted_idx = data.get_idx_split()
-    idx_train, idx_val, idx_test = splitted_idx["train"], splitted_idx["valid"], splitted_idx["test"]
-    graph, labels = data[0]
-    labels = labels.squeeze()
-    srcs, dsts = graph.all_edges()
-    graph.add_edges(dsts, srcs)
-    graph = graph.remove_self_loop().add_self_loop()
-    features = graph.ndata['feat']
-    graph = graph.to(device)
-    features = features.to(device)
-    labels = labels.to(device)
-    idx_train = idx_train.to(device)
-    idx_val = idx_val.to(device)
-    idx_test = idx_test.to(device)
-    return graph, features, labels, idx_train, idx_val, idx_test
-
-
 def load_tensor_data(model_name, dataset, labelrate, device):
     if dataset in ['composite', 'composite2', 'composite3']:
         adj, features, labels_one_hot, idx_train, idx_val, idx_test = load_composite_data(dataset)

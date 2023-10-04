@@ -61,7 +61,7 @@ def choose_model(conf):
         model = GraphSAGE(in_feats=features.shape[1],
                           n_hidden=conf['embed_dim'],
                           n_classes=labels.max().item() + 1,
-                          n_layers=2,
+                          n_layers=conf['num_layers'],
                           activation=F.relu,
                           dropout=0.5,
                           aggregator_type=conf['agg_type']).to(conf['device'])
@@ -91,17 +91,17 @@ def train():
     if conf['model_name'] == 'GCN':
         output, _ = model(G.ndata['feat'])
     elif conf['model_name'] == 'GAT':
-        output, _, _ = model(G.ndata['feat'])
+        output, _ = model(G.ndata['feat'])[0:2]
     elif conf['model_name'] == 'GraphSAGE':
         output, _ = model(G, G.ndata['feat'])
     elif conf['model_name'] == 'GCNII':
-        output, _ = model(G.ndata['feat'])
+        output, _ = model(features, adj)
     else:
         raise ValueError(f'Undefined Model')
     output = F.log_softmax(output, dim=1)
     
-    acc_train = accuracy(output[idx_train], labels[idx_train].to(device))
-    loss_train = F.nll_loss(output[idx_train], labels[idx_train].to(device))
+    acc_train = accuracy(output[idx_train], labels[idx_train].to(conf['device']))
+    loss_train = F.nll_loss(output[idx_train], labels[idx_train].to(conf['device']))
     loss_train.backward()
     optimizer.step()
     
@@ -115,15 +115,17 @@ def validate():
         if conf['model_name'] == 'GCN':
             output, _ = model(G.ndata['feat'])
         elif conf['model_name'] == 'GAT':
-            output, _ = model(G.ndata['feat'])[0:1]
+            output, _ = model(G.ndata['feat'])[0:2]
         elif conf['model_name'] == 'GraphSAGE':
             output, _ = model(G, G.ndata['feat'])
         elif conf['model_name'] == 'GCNII':
-            output, _ = model(G.ndata['feat'])
+            output, _ = model(features, adj)
+        else:
+            raise ValueError(f'Undefined Model')
 
         output = F.log_softmax(output, dim=1)
-        loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(device))
-        acc_val = accuracy(output[idx_val], labels[idx_val].to(device))
+        loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(conf['device']))
+        acc_val = accuracy(output[idx_val], labels[idx_val].to(conf['device']))
 
         return loss_val.item(),acc_val.item()
 
@@ -134,16 +136,17 @@ def test():
         if conf['model_name'] == 'GCN':
             output, _ = model(G.ndata['feat'])
         elif conf['model_name'] == 'GAT':
-            output, _ = model(G.ndata['feat'])
+            output, _ = model(G.ndata['feat'])[0:2]
         elif conf['model_name'] == 'GraphSAGE':
             output, _ = model(G, G.ndata['feat'])
         elif conf['model_name'] == 'GCNII':
-            output, _ = model(G.ndata['feat'])
+            output, _ = model(features, adj)
         else:
             raise ValueError(f'Undefined Model')
+        
         output = F.log_softmax(output, dim=1)
-        loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(device))
-        acc_test = accuracy(output[idx_test], labels[idx_test].to(device))
+        loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(conf['device']))
+        acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
         print("Test set results: loss= {:.4f} acc_test= {:.4f}".format(
             loss_test.item(), acc_test.item()))
     return loss_test.item(),acc_test.item()
@@ -159,12 +162,7 @@ if __name__ == '__main__':
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
-    
-    # device
-    # if args.device > 0:
-    #     conf['device'] = torch.device("cuda:" + str(args.device))
-    # else:
-    #     conf['device'] = torch.device("cpu")
+
     conf['device'] = torch.device("cuda:" + str(args.device))
     
     # print configuration dict
@@ -185,11 +183,9 @@ if __name__ == '__main__':
     print('We have %d nodes.' % G.number_of_nodes())
     print('We have %d edges.' % G.number_of_edges())
     
-    cudaid = "cuda:"+str(args.dev)
-    device = torch.device(cudaid)
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
-    checkpt_file = "./teacher/teacher_"+str(args.data)+str(args.layer)+".pth"
+    checkpt_file = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     model = choose_model(conf)
     if conf['model_name'] == 'GCNII':
@@ -229,11 +225,11 @@ if __name__ == '__main__':
         else:
             bad_counter += 1
 
-        if bad_counter == 50: # modify patience 200 -> 50
+        if bad_counter == 200: # modify patience 200 -> 50
             break
     
-    acc = test()
+    loss, acc = test()
     
-    print('The number of parameters in the student: {:04d}'.format(count_params(model)))
+    print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print("Test" if args.test else "Val","acc.:{:.2f}".format(acc*100))
+    print("Test loss.:{:.2f}".format(loss), "Test acc.:{:.2f}".format(acc*100))
