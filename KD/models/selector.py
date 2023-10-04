@@ -7,7 +7,7 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         
         self.num_layers = num_layers
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = dropout
         self.layers = nn.ModuleList()
         
         if num_layers < 1:
@@ -22,10 +22,11 @@ class MLP(nn.Module):
     
     def forward(self, input):
         hidden = input
+        hidden = F.dropout(hidden, self.dropout, training=self.training)
         for l, layer in enumerate(self.layers):
             hidden = layer(hidden)
             if l != len(self.layers) - 1:
                 hidden = F.relu(hidden)
-                hidden = self.dropout(hidden)
+                hidden = F.dropout(hidden, self.dropout, training=self.training)
         
         return hidden

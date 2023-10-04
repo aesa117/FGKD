@@ -15,7 +15,7 @@ from mask import *
 from models.selector import *
 
 from pytorch_metric_learning import losses, miners
-from sklearn.metrics.cluster import normalized_mutual_info_score
+# from sklearn.metrics.cluster import normalized_mutual_info_score
 # from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 
@@ -130,11 +130,15 @@ def train():
     loss_CE = F.nll_loss(s_out[idx_train], labels[idx_train].to(conf['device']))
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
 
-    print('masks의 type', type(masks))
     # mask selection - training and extract masks for clustering score
-    updated_masks = selection(selector_model, t_hidden[idx_train], labels[idx_train], normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
-    best_mask = updated_masks[0]
-    masked_t_hidden = best_mask * t_hidden[idx_train]
+    updated_masks = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, data_size)
+    best_mask = updated_masks[0].transpose()
+    print(best_mask.shape)
+    print(t_hidden[idx_train].shape)
+    
+    # Only feature with mask value non-zero
+    masked_t_hidden = t_hidden[idx_train].mul(best_mask!=0)
+    print(masked_t_hidden.shape)
     
     # loss_task
     t_output = t_output/temperature
@@ -143,11 +147,12 @@ def train():
     loss_task = kl_kernel(t_y, s_y)
 
     # loss_hidden
-    t_x = masked_t_hidden.to(conf['device'])
+    t_x = masked_t_hidden
     s_x = s_hidden[idx_train]
+    print(t_x.shape, s_x.shape)
     loss_hidden = kl_kernel(t_x, s_x)
 
-    # loss_final- lbd_pred, lbe_embd are still not defined
+    # loss_final
     loss_train = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
     loss_train.backward()
     optimizer.step()
@@ -188,6 +193,11 @@ def validate():
             
         s_out = F.log_softmax(s_output, dim=1)
         loss_CE = F.nll_loss(s_out[idx_val], labels[idx_val].to(conf['device']))
+        acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
+        
+        updated_masks = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, data_size)
+        best_mask = updated_masks[0]
+        masked_t_hidden = t_hidden[idx_val].mul(best_mask)
 
         # loss_task
         t_y = t_output[idx_val]
@@ -201,7 +211,6 @@ def validate():
 
         # loss_final- lbd_pred, lbe_embd are still not defined
         loss_val = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
-        acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
         return loss_val.item(),acc_val.item()
 
 def test():
@@ -292,12 +301,13 @@ if __name__ == '__main__':
     
     # selector model generate
     selector_model = selector_model_init(conf)
+    selector_model = selector_model.to(conf['device'])
     selector_loss = losses.TripletMarginLoss(margin=0.3, 
                                             swap=False,
                                             smooth_loss=False,
-                                            triplets_per_anchor="all")
-    mining_func = miners.TripletMarginMiner(margin=0.3, 
-                                                     type_of_triplets="semihard")
+                                            triplets_per_anchor="all",).to(conf['device'])
+    # mining_func = miners.TripletMarginMiner(margin=0.3, 
+    #                                                  type_of_triplets="semihard")
     selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.01, weight_decay=0.001)
     
     # initialize mask

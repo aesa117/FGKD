@@ -191,7 +191,7 @@ if __name__ == '__main__':
     
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
-    checkpt_file = "./student_base/student_"+str(args.dataset)+".pth"
+    checkpt_file = "./student_base/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
     
     model = choose_model(conf)
     if conf['model_name'] == 'GCNII':
