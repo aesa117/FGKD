@@ -3,6 +3,8 @@ global:
   loss_alpha: 0.1
   optimizer: 'Adam'
   ground: False
+  nlayer: 5
+  features: 8710
 
 # specific configurations of each model
 GCN:

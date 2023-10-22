@@ -1,0 +1,11 @@
+dataset_source:
+  'corafull'
+# Random seed (for reproducibility).
+seed: 2023
+# standardize_graph use largest_connected_component as graph
+train_config:
+  split:
+    train_examples_per_class: 150
+    val_examples_per_class: 50
+    test_size: 30
+  standardize_graph: True

@@ -40,22 +40,22 @@ def split_double_test(dataset, idx_test):
     return idx_test1, idx_test2
 
 
-def preprocess_adj(model_name, adj):
+def preprocess_adj(adj):
     return normalize_adj(adj)
 
 
-def preprocess_features(model_name, features):
+def preprocess_features(features):
     return features
 
 
-def load_tensor_data(model_name, dataset, labelrate, device):
+def load_tensor_data(dataset, device, config_path):
     if dataset in ['composite', 'composite2', 'composite3']:
         adj, features, labels_one_hot, idx_train, idx_val, idx_test = load_composite_data(dataset)
     else:
         # config_file = os.path.abspath('data/dataset.conf.yaml')
-        adj, features, labels_one_hot, idx_train, idx_val, idx_test = load_dataset_and_split(labelrate, dataset)
-    adj = preprocess_adj(model_name, adj)
-    features = preprocess_features(model_name, features)
+        adj, features, labels_one_hot, idx_train, idx_val, idx_test = load_dataset_and_split(dataset, config_path)
+    adj = preprocess_adj(adj)
+    features = preprocess_features(features)
     adj_sp = adj.tocoo()
     adj = torch.FloatTensor(np.array(adj.todense()))
     features = torch.FloatTensor(np.array(features.todense()))

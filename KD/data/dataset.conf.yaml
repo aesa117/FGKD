@@ -2,7 +2,7 @@ dataset_source:
   'npz'
 #  'planetoid'
 # Random seed (for reproducibility).
-seed: 0
+seed: 2023
 # standardize_graph use largest_connected_component as graph
 train_config:
   split:

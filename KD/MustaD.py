@@ -105,25 +105,15 @@ def choose_model(conf):
 
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        hidden_embedding = 64
-    else:
+        embedding_size = 64
         hidden_embedding = 128
-    selector_model = MLP(num_layers=3,
-                         input_dim=hidden_embedding,
-                         hidden_dim=hidden_embedding, 
-                         output_dim=hidden_embedding,
-                         dropout=0.5)
-    return selector_model
-
-def selector_model(conf):
-    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        hidden_embedding = 64
     else:
-        hidden_embedding = 128
-    selector_model = MLP(num_layers=3,
-                         input_dim=hidden_embedding,
+        embedding_size = 128
+        hidden_embedding = 256
+    selector_model = MLP(num_layers=conf['nlayer'],
+                         input_dim=conf['feaetures'],
                          hidden_dim=hidden_embedding, 
-                         output_dim=hidden_embedding,
+                         output_dim=embedding_size,
                          dropout=0.5)
     return selector_model
 
@@ -286,7 +276,7 @@ if __name__ == '__main__':
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
-            load_tensor_data(conf['model_name'], conf['dataset'], args.labelrate, conf['device'])
+            load_tensor_data(conf['dataset'], args.labelrate, conf['device'], config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
     labels_init = initialize_label(idx_train, labels_one_hot).to(conf['device'])

@@ -62,14 +62,22 @@ def choose_model(conf, G, features, labels, byte_idx_train, labels_one_hot):
 
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        hidden_embedding = 64
-    else:
+        embedding_size = 64
         hidden_embedding = 128
-    selector_model = MLP(num_layers=3,
-                         input_dim=hidden_embedding,
+    else:
+        embedding_size = 128
+        hidden_embedding = 256
+    selector_model = MLP(num_layers=conf['nlayer'],
+                         input_dim=conf['feaetures'],
                          hidden_dim=hidden_embedding, 
-                         output_dim=hidden_embedding,
+                         output_dim=embedding_size,
                          dropout=0.5)
+    
+    # add new input layer after delete first layer
+    selector_model.layers = selector_model.layers[1:]
+    input = nn.Linear(embedding_size, hidden_embedding)
+    selector_model.layers = nn.Sequential(input, *selector_model.layers)
+    
     return selector_model
 
 def train():
@@ -222,7 +230,7 @@ if __name__ == '__main__':
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
-            load_tensor_data(conf['model_name'], conf['dataset'], args.labelrate, conf['device'])
+            load_tensor_data(conf['dataset'], args.labelrate, conf['device'], config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
     print('We have %d nodes.' % G.number_of_nodes())

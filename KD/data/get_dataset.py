@@ -16,28 +16,41 @@ def generate_data_path(dataset, dataset_source):
         return 'data/planetoid'
     elif dataset_source == 'npz':
         return 'data/npz/' + dataset + '.npz'
+    elif dataset_source == 'corafull':
+        return 'data/corafull/raw' + dataset + '.npz'
     else:
         print(dataset_source)
         raise ValueError(f'The "dataset_source" must be set to "planetoid" or "npz"')
 
 
-def load_dataset_and_split(labelrate, dataset):
-    # _config = get_experiment_config(config_file)
-    _config = {
-        'dataset_source': 'npz',
-        'seed': 0,
-        'train_config': {
-            'split': {
-                'train_examples_per_class': labelrate,  # 20
-                'val_examples_per_class': 30
-            },
-            'standardize_graph': True
-        }
-    }
+def load_dataset_and_split(dataset, config_path):
+    _config = get_experiment_config(config_path)
+    # _config = {
+    #     'dataset_source': 'npz',
+    #     'seed': 0,
+    #     'train_config': {
+    #         'split': {
+    #             'train_examples_per_class': labelrate,  # 20
+    #             'val_examples_per_class': 30
+    #         },
+    #         'standardize_graph': True
+    #     }
+    # }
     print('_config', _config)
     _config['data_path'] = generate_data_path(dataset, _config['dataset_source'])
     if _config['dataset_source'] == 'planetoid':
         return get_dataset_and_split_planetoid(dataset, _config['data_path'])
+    elif _config['dataset_source'] == 'corafull': # corafull data
+        adj, features, labels = get_dataset(dataset, _config['data_path'],
+                                            _config['train_config']['standardize_graph'],
+                                            _config['train_config']['split']['train_examples_per_class'],
+                                            _config['train_config']['split']['val_examples_per_class'])
+        random_state = np.random.RandomState(_config['seed'])
+        idx_train, idx_val, idx_test = get_train_val_test_split(random_state, labels,
+                                                                **_config['train_config']['split'], 
+                                                                train_examples_per_class=150, 
+                                                                val_examples_per_class=50,
+                                                                test_examples_per_class=30)
     else:
         adj, features, labels = get_dataset(dataset, _config['data_path'],
                                             _config['train_config']['standardize_graph'],
@@ -46,7 +59,8 @@ def load_dataset_and_split(labelrate, dataset):
         random_state = np.random.RandomState(_config['seed'])
         idx_train, idx_val, idx_test = get_train_val_test_split(random_state, labels,
                                                                 **_config['train_config']['split'])
-        return adj, features, labels, idx_train, idx_val, idx_test
+    
+    return adj, features, labels, idx_train, idx_val, idx_test
 
 
 if __name__ == '__main__':

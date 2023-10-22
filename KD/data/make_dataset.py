@@ -31,7 +31,7 @@ def get_dataset(name, data_path, standardize, train_examples_per_class=None, val
         dataset_graph = eliminate_self_loops(dataset_graph)
 
     if train_examples_per_class is not None and val_examples_per_class is not None:
-        if name == 'cora_full':
+        if name == 'corafull':
             # cora_full has some classes that have very few instances. We have to remove these in order for
             # split generation not to fail
             dataset_graph = remove_underrepresented_classes(dataset_graph,
@@ -63,7 +63,7 @@ def get_train_val_test_split(random_state,
                              train_examples_per_class=None, val_examples_per_class=None,
                              test_examples_per_class=None,
                              train_size=None, val_size=None, test_size=None):
-    num_samples, num_classes = labels.shape
+    num_samples, num_classes = labels.shape 
     remaining_indices = list(range(num_samples))
     print(train_examples_per_class, val_examples_per_class, test_examples_per_class, train_size, val_size, test_size)
     if train_examples_per_class is not None:
