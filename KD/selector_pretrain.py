@@ -19,14 +19,23 @@ from models.selector import *
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', default="MLP", help="Selector network type")
-    parser.add_argument('--sage', action='store_true', default=False, help='Student model type')
-    parser.add_argument('--dataset', default="corafull", help="Dataset type")
+    parser.add_argument('--sage', action='store_true', default=False, type=str2bool, help='Student model type')
     parser.add_argument('--lr', type=float, default=0.01, help="Learning rate")
     parser.add_argument('--wd', type=float, default=0.001, help="Weight decay")
     parser.add_argument('--nlayer', type=int, default=5, help="Number of layer")
+    parser.add_argument('--dataset', default="corafull", help="Dataset type")
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     return parser.parse_args()
+
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def configuration(args):
     conf['sage'] = args.sage
@@ -91,7 +100,7 @@ def test():
         
 
 if __name__ == '__main__':
-    args = arg_parse()
+    args = arg_parse(argparse.ArgumentParser())
     
     conf, conf_path = configuration(args)
     checkpt_file = "./selector/"+"MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+".pth"
