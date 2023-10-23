@@ -27,7 +27,7 @@ def arg_parse(parser):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='cora', help='dateset')
     parser.add_argument('--student', default='GCNII', help='model type')
-    parser.add_argument('--mustad', type=bool, default=False, helf='is KD method MustaD?')
+    parser.add_argument('--mustad', type=bool, default=False, help='is KD method MustaD?')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--labelrate', type=int, default=20, help='Label rate')
     return parser.parse_args()

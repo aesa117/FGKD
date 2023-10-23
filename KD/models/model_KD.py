@@ -84,10 +84,7 @@ class GCNII(nn.Module):
                 layer_inner, self.dropout, training=self.training)
             layer_inner = self.act_fn(
                 con(layer_inner, adj, _layers[0], self.lamda, self.alpha, i + 1))
-        hidden_emb = F.dropout(
-            layer_inner,
-            self.dropout,
-            training=self.training)
+        hidden_emb = F.dropout(layer_inner,self.dropout, training=self.training)
         layer_inner = self.fcs[-1](hidden_emb)
         return layer_inner, hidden_emb
 
