@@ -177,7 +177,7 @@ if __name__ == '__main__':
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
-            load_tensor_data(conf['model_name'], conf['dataset'], args.labelrate, conf['device'])
+            load_tensor_data(conf['model_name'], conf['dataset'], args.labelrate, conf['device'], config_data_path, config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
     print('We have %d nodes.' % G.number_of_nodes())
