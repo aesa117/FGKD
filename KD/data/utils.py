@@ -66,6 +66,7 @@ def load_tensor_data(dataset, device, config_path):
     idx_train = torch.LongTensor(idx_train)
     idx_val = torch.LongTensor(idx_val)
     idx_test = torch.LongTensor(idx_test)
+    
     # adj_sp = sp.coo_matrix(adj.numpy(), dtype=float)
     print('Device: ', device)
     adj = adj.to(device)

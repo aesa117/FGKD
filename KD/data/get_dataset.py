@@ -17,7 +17,7 @@ def generate_data_path(dataset, dataset_source):
     elif dataset_source == 'npz':
         return 'data/npz/' + dataset + '.npz'
     elif dataset_source == 'corafull':
-        return 'data/corafull/raw' + dataset + '.npz'
+        return 'data/corafull/raw/' + dataset + '.npz'
     else:
         print(dataset_source)
         raise ValueError(f'The "dataset_source" must be set to "planetoid" or "npz"')
@@ -46,11 +46,8 @@ def load_dataset_and_split(dataset, config_path):
                                             _config['train_config']['split']['train_examples_per_class'],
                                             _config['train_config']['split']['val_examples_per_class'])
         random_state = np.random.RandomState(_config['seed'])
-        idx_train, idx_val, idx_test = get_train_val_test_split(random_state, labels,
-                                                                **_config['train_config']['split'], 
-                                                                train_examples_per_class=150, 
-                                                                val_examples_per_class=50,
-                                                                test_examples_per_class=30)
+        idx_train, idx_val, idx_test = get_train_val_test_split(random_state, labels, 
+                                                                **_config['train_config']['split'])
     else:
         adj, features, labels = get_dataset(dataset, _config['data_path'],
                                             _config['train_config']['standardize_graph'],

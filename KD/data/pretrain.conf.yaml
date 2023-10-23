@@ -7,5 +7,5 @@ train_config:
   split:
     train_examples_per_class: 150
     val_examples_per_class: 50
-    test_size: 30
+    test_size : 2100
   standardize_graph: True
