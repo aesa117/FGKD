@@ -19,7 +19,7 @@ from models.selector import *
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--sage', action='store_true', default=False, type=str2bool, help='Student model type')
+    parser.add_argument('--sage', action='store_true', default=False, help='Student model type')
     parser.add_argument('--lr', type=float, default=0.01, help="Learning rate")
     parser.add_argument('--wd', type=float, default=0.001, help="Weight decay")
     parser.add_argument('--nlayer', type=int, default=5, help="Number of layer")
@@ -38,7 +38,8 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def configuration(args):
-    conf['sage'] = args.sage
+    conf = dict()
+    conf['seed'] = 2023
     conf['device'] = torch.device("cuda:" + str(args.device))
     conf = dict(conf, **args.__dict__)
     
@@ -52,15 +53,13 @@ def configuration(args):
 
 def selector_model_init(conf):
     if conf['sage'] == False:
-        embedding_size = 64
-        hidden_embedding = 128
+        hidden_embedding = 64
     else:
-        embedding_size = 128
-        hidden_embedding = 256
+        hidden_embedding = 128
     selector_model = MLP(num_layers=conf['nlayer'],
                          input_dim=features.shape[1],
                          hidden_dim=hidden_embedding, 
-                         output_dim=embedding_size,
+                         output_dim=labels.max().item() + 1,
                          dropout=0.5)
     return selector_model
 
@@ -118,6 +117,7 @@ if __name__ == '__main__':
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
     labels = labels.to(conf['device'])
+    print("label 개수", labels.max().item())
     
     selector_model = selector_model_init(conf)
     selector_model = selector_model.to(conf['device'])
