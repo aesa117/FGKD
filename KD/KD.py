@@ -28,7 +28,6 @@ def arg_parse(parser):
     parser.add_argument('--distill', action='store_false', default=True, help='Distill or not')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
-    parser.add_argument('--labelrate', type=int, default=20, help='label rate')
     parser.add_argument('--mlp_layers', type=int, default=2, help='MLP layer, 0 means not add feature mlp/lr')
     parser.add_argument('--grad', type=int, default=1, help='output grad or not')
 
@@ -100,16 +99,23 @@ def selector_model_init(conf):
     else:
         embedding_size = 128
         hidden_embedding = 256
+        
     selector_model = MLP(num_layers=conf['nlayer'],
-                         input_dim=conf['feaetures'],
+                         input_dim=embedding_size,
                          hidden_dim=hidden_embedding, 
                          output_dim=embedding_size,
                          dropout=0.5)
     
+    # selector_model = MLP(num_layers=conf['nlayer'],
+    #                      input_dim=conf['feaetures'],
+    #                      hidden_dim=hidden_embedding, 
+    #                      output_dim=embedding_size,
+    #                      dropout=0.5)
+    
     # add new input layer after delete first layer
-    selector_model.layers = selector_model.layers[1:]
-    input = nn.Linear(embedding_size, hidden_embedding)
-    selector_model.layers = nn.Sequential(input, *selector_model.layers)
+    # selector_model.layers = selector_model.layers[1:]
+    # input = nn.Linear(embedding_size, hidden_embedding)
+    # selector_model.layers = nn.Sequential(input, *selector_model.layers)
     
     return selector_model
 
@@ -284,7 +290,7 @@ if __name__ == '__main__':
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
-            load_tensor_data(conf['dataset'], args.labelrate, conf['device'], config_data_path)
+            load_tensor_data(conf['dataset'], conf['device'], config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
     labels_init = initialize_label(idx_train, labels_one_hot).to(conf['device'])

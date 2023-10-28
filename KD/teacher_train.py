@@ -28,7 +28,6 @@ def arg_parse(parser):
     parser.add_argument('--dataset', default='cora', help='dateset')
     parser.add_argument('--teacher', default='GCNII', help='model type')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
-    parser.add_argument('--labelrate', type=int, default=20, help='Label rate')
     return parser.parse_args()
 
 def choose_model(conf):
@@ -177,7 +176,7 @@ if __name__ == '__main__':
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
-            load_tensor_data(conf['model_name'], conf['dataset'], args.labelrate, conf['device'], config_data_path, config_data_path)
+            load_tensor_data(conf['dataset'], conf['device'], config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
     print('We have %d nodes.' % G.number_of_nodes())
