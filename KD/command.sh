@@ -20,9 +20,5 @@ python3 -u CPF.py --dataset citeseer --teacher GCNII --student GCNII--lbd_embd 0
 python3 -u CPF.py --dataset pubmed --teacher GCNII --student GCNII --lbd_embd 1
 
 # Selector Model
-python3 -u selector_pretrain.py --lr 0.01 --wd 0.001 --nlayer 5
-<<<<<<< HEAD
-python3 -u selector_pretrain.py --sage true --lr 0.01 --wd 0.001 --nlayer 5
-=======
-python3 -u selector_pretrain.py --sage True --lr 0.01 --wd 0.001 --nlayer 5
->>>>>>> 1388706359550c8c46e3f62952f85af9c96d18f0
+python3 -u selector_pretrain.py --lr 0.01 --wd 0.001 --margin 0.3 --nlayer 7
+python3 -u selector_pretrain.py --sage True --lr 0.01 --wd 0.001 --nlayer 7

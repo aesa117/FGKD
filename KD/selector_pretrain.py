@@ -13,21 +13,28 @@ from data.get_dataset import get_experiment_config
 from data.utils import load_tensor_data, initialize_label
 
 from pytorch_metric_learning import losses
-from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
+from sklearn.metrics import f1_score
+from utils.metrics import accuracy
+# from sklearn.metrics.cluster import normalized_mutual_info_score
+# from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 from models.selector import *
+
+from collections import Counter
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
     parser.add_argument('--sage', action='store_true', default=False, help='Student model type')
     parser.add_argument('--lr', type=float, default=0.01, help="Learning rate")
     parser.add_argument('--wd', type=float, default=0.001, help="Weight decay")
+    parser.add_argument('--margin', type=float, default=0.3, help="Triplet margin")
     parser.add_argument('--nlayer', type=int, default=5, help="Number of layer")
     parser.add_argument('--dataset', default="corafull", help="Dataset type")
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
     return parser.parse_args()
 
 def configuration(args):
+    conf = dict()
     conf['seed'] = 2023
     conf['device'] = torch.device("cuda:" + str(args.device))
     conf = dict(conf, **args.__dict__)
@@ -42,13 +49,13 @@ def configuration(args):
 
 def selector_model_init(conf):
     if conf['sage'] == False:
-        hidden_embedding = 64
-    else:
         hidden_embedding = 128
+    else:
+        hidden_embedding = 256
     selector_model = MLP(num_layers=conf['nlayer'],
                          input_dim=features.shape[1],
                          hidden_dim=hidden_embedding, 
-                         output_dim=labels.max().item() + 1,
+                         output_dim=labels.max().item() + 1, # 40
                          dropout=0.5)
     return selector_model
 
@@ -57,45 +64,59 @@ def train():
     
     optimizer.zero_grad()
     loss_metric = 0
+    f1_macro = 0
+    f1_micro = 0
     acc = 0
+    count = 0
     # batch size 80 * 75 = 6000
     for idx in range(80, int(idx_train.shape[0]), 80):
         model_output = selector_model(features[int(idx-80):idx])
-        loss_metric += loss(model_output, labels[int(idx-80):idx])
-        acc += AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[int(idx-80):idx], include=("NMI, AMI"))["NMI"]
-    
-    loss_metric /= 75
-    acc /= 75
+        m_output = F.log_softmax(model_output, dim=1)
+        m_out = np.argmax(m_output.detach().cpu(), axis=1)
+        loss_metric += (loss(m_output, labels[int(idx-80):idx]) + F.nll_loss(m_output.to(conf['device']), labels[int(idx-80):idx].to(conf['device'])))
         
-    # model_output = selector_model(features[idx_train])
-    # loss_metric = loss(model_output, labels[idx_train])
-    # acc = AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[idx_train], include=("NMI, AMI"))
+        f1_macro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='macro')
+        f1_micro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='micro')
+        acc += accuracy(m_output, labels[int(idx-80):idx])
+        count += 1
+    
+    loss_metric /= count
+    f1_macro /= count
+    f1_micro /= count
+    acc /= count
     
     loss_metric.backward()
     optimizer.step()
     
-    return loss_metric.item(), acc  
+    return loss_metric.item(), acc, f1_macro, f1_micro
 
 def validate():
     selector_model.eval()
     
     with torch.no_grad():
         loss_metric = 0
+        f1_macro = 0
+        f1_micro = 0
         acc = 0
+        count = 0
         # batch size 80 * 25 = 2000
-        for idx in range(80, int(idx_train.shape[0]), 80):
+        for idx in range(80, int(idx_val.shape[0]), 80):
             model_output = selector_model(features[int(idx-80):idx])
-            loss_metric += loss(model_output, labels[int(idx-80):idx])
-            acc += AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[int(idx-80):idx], include=("NMI, AMI"))["NMI"]
-        
-        loss_metric /= 25
-        acc /= 25
-        
-        # model_output = selector_model(features[idx_val])
-        # loss_metric = loss(model_output, labels[idx_val])
-        # acc = AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[idx_val], include=("NMI, AMI"))
+            m_output = F.log_softmax(model_output, dim=1)
+            m_out = np.argmax(m_output.detach().cpu(), axis=1)
+            loss_metric += (loss(m_output, labels[int(idx-80):idx]) + F.nll_loss(m_output.to(conf['device']), labels[int(idx-80):idx].to(conf['device'])))
+            
+            f1_macro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='macro')
+            f1_micro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='micro')
+            acc += accuracy(m_output, labels[int(idx-80):idx])
+            count += 1
     
-    return loss_metric.item(), acc['NMI']
+        loss_metric /= count
+        f1_macro /= count
+        f1_micro /= count
+        acc /= count
+    
+    return loss_metric.item(), acc, f1_macro, f1_micro
     
 def test():
     selector_model.load_state_dict(torch.load(checkpt_file))
@@ -103,27 +124,35 @@ def test():
     
     with torch.no_grad():
         loss_metric = 0
+        f1_macro = 0
+        f1_micro = 0
         acc = 0
+        count = 0
         # batch size 80 * 26 = 2080 = 2100 - 20
-        for idx in range(80, int(idx_train.shape[0])-20, 80):
+        for idx in range(80, int(idx_test.shape[0])-20, 80):
             model_output = selector_model(features[int(idx-80):idx])
-            loss_metric += loss(model_output, labels[int(idx-80):idx])
-            acc += AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[int(idx-80):idx], include=("NMI, AMI"))["NMI"]
+            m_output = F.log_softmax(model_output, dim=1)
+            m_out = np.argmax(m_output.detach().cpu(), axis=1)
+            loss_metric += (loss(m_output, labels[int(idx-80):idx]) + F.nll_loss(m_output.to(conf['device']), labels[int(idx-80):idx].to(conf['device'])))
+            
+            f1_macro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='macro')
+            f1_micro += f1_score(labels[int(idx-80):idx].detach().cpu(), m_out, average='micro')
+            acc += accuracy(m_output, labels[int(idx-80):idx])
+            count += 1
         
-        loss_metric /= 26
-        acc /= 26
-        # model_output = selector_model(features[idx_test])
-        # loss_metric = loss(model_output, labels[idx_test])
-        # acc = AccuracyCalculator.get_accuracy(query=model_output, query_labels=labels[idx_test], include=("NMI, AMI"))
+        loss_metric /= count
+        f1_macro /= count
+        f1_micro /= count
+        acc /= count
     
-    return loss_metric.item(), acc['NMI']
+    return loss_metric.item(), acc, f1_macro, f1_micro
         
 
 if __name__ == '__main__':
     args = arg_parse(argparse.ArgumentParser())
     
     conf, conf_path = configuration(args)
-    checkpt_file = "./selector/"+"MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+".pth"
+    checkpt_file = "./selector/"+"MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+"_mg:"+str(conf['margin'])+"_nl:"+str(conf['nlayer'])+".pth"
     
     # random seed
     np.random.seed(conf['seed'])
@@ -135,38 +164,35 @@ if __name__ == '__main__':
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
             load_tensor_data(conf['dataset'], conf['device'], conf_path)
     
-    print(set(labels[idx_train].item()))
-    # number of type of unique elements for each label (= number of class)
-    train_unique = len(set(labels[idx_train]))
-    val_unique = len(set(labels[idx_val]))
-    test_unique = len(set(labels[idx_test]))
-    print("number of class")
-    print("train : ", train_unique, "|val : ", val_unique, "|test : ", test_unique)
-    
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
     labels = labels.to(conf['device'])
-    print("label 개수", labels.max().item())
     
     selector_model = selector_model_init(conf)
     selector_model = selector_model.to(conf['device'])
-    loss = losses.TripletMarginLoss(margin=0.3, 
+    loss = losses.TripletMarginLoss(margin=conf['margin'], 
                                             swap=False,
                                             smooth_loss=False,
                                             triplets_per_anchor="all",).to(conf['device'])
     # calculator = AccuracyCalculator(include=("NMI", "AMI")).to(conf['device'])
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=conf['lr'], weight_decay=conf['wd'])
     
-    for epoch in range(500):
-        loss_train, acc_train, sel_loss_train = train()
-        loss_val, acc_val, sel_loss_val = validate()
+    bad_counter = 0
+    best = 999999999
+    best_epoch = 0
+    acc = 0
+    f1_macro, f1_micro = 0, 0
+    for epoch in range(1000):
+        loss_train, acc_train, macro_train, micro_train = train()
+        loss_val, acc_val, macro_val, micro_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),'train','loss:{:.3f}'.format(loss_train),'acc:{:.2f}'.format(acc_train*100),
-            '| val','loss:{:.3f}'.format(loss_val),'acc:{:.2f}'.format(acc_val*100))
-            print('selector training loss : {:.3f}'.format(sel_loss_train), 'validation loss : {:.3f}'.format(sel_loss_val))
+            print('Epoch:{:04d}'.format(epoch+1),'train : ','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
+            f1_macro = macro_val
+            f1_micro = micro_val
             acc = acc_val
             torch.save(selector_model.state_dict(), checkpt_file)
             bad_counter = 0
@@ -176,8 +202,8 @@ if __name__ == '__main__':
         if bad_counter == 200: # modify patience 200
             break
     
-    test_loss, test_acc = test()
+    loss_test, acc_test, macro_test, micro_test = test()
     
     print('The number of parameters in the student: {:04d}'.format(count_params(selector_model)))
     print('Load {}th epoch'.format(best_epoch))
-    print("Test acc.:{:.2f}".format(test_acc*100), " val.:{:.3f}".format(test_loss))
+    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))

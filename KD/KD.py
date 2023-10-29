@@ -94,28 +94,23 @@ def choose_model(conf):
 
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        embedding_size = 64
-        hidden_embedding = 128
-    else:
         embedding_size = 128
-        hidden_embedding = 256
-        
+        inout_size = 64
+    else:
+        embedding_size = 256
+        inout_size = 128
+    
     selector_model = MLP(num_layers=conf['nlayer'],
-                         input_dim=embedding_size,
-                         hidden_dim=hidden_embedding, 
-                         output_dim=embedding_size,
+                         input_dim=inout_size,
+                         hidden_dim=embedding_size, 
+                         output_dim=inout_size,
                          dropout=0.5)
     
-    # selector_model = MLP(num_layers=conf['nlayer'],
-    #                      input_dim=conf['feaetures'],
-    #                      hidden_dim=hidden_embedding, 
-    #                      output_dim=embedding_size,
-    #                      dropout=0.5)
-    
-    # add new input layer after delete first layer
-    # selector_model.layers = selector_model.layers[1:]
-    # input = nn.Linear(embedding_size, hidden_embedding)
-    # selector_model.layers = nn.Sequential(input, *selector_model.layers)
+    # delete first layer & final layer
+    selector_model.layers = selector_model.layers[1:-1]
+    input = nn.Linear(inout_size, embedding_size)
+    output = nn.Linear(embedding_size, inout_size)
+    selector_model.layers = nn.Sequential(input, *selector_model.layers, output)
     
     return selector_model
 
