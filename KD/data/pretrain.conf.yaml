@@ -1,7 +1,7 @@
 dataset_source:
   'corafull'
 # Random seed (for reproducibility).
-seed: 2023
+seed: 2022
 # standardize_graph use largest_connected_component as graph
 train_config:
   split:
