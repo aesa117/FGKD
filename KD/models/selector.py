@@ -19,6 +19,10 @@ class MLP(nn.Module):
             for _ in range(num_layers - 2):
                 self.layers.append(nn.Linear(hidden_dim, hidden_dim))
             self.layers.append(nn.Linear(hidden_dim, output_dim))
+        
+        # Kaiming initialization
+        for i, _ in enumerate(self.layers):
+            nn.init.kaiming_normal_(self.layers[i].weight)
     
     def forward(self, input):
         hidden = input

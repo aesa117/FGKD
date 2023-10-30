@@ -35,7 +35,7 @@ def arg_parse(parser):
 
 def configuration(args):
     conf = dict()
-    conf['seed'] = 2023
+    conf['seed'] = 2022
     conf['device'] = torch.device("cuda:" + str(args.device))
     conf = dict(conf, **args.__dict__)
     
@@ -204,6 +204,6 @@ if __name__ == '__main__':
     
     loss_test, acc_test, macro_test, micro_test = test()
     
-    print('The number of parameters in the student: {:04d}'.format(count_params(selector_model)))
+    print('The number of parameters in the selector: {:04d}'.format(count_params(selector_model)))
     print('Load {}th epoch'.format(best_epoch))
     print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
