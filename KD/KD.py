@@ -318,7 +318,7 @@ if __name__ == '__main__':
                                             swap=False,
                                             smooth_loss=False,
                                             triplets_per_anchor="all",).to(conf['device'])
-    selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.01, weight_decay=0.001)
+    selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.001, weight_decay=0.001)
     
     # initialize mask
     num_masks = 20
