@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 
 from models.model_utils import *
 
@@ -19,8 +20,6 @@ from sklearn.metrics.cluster import normalized_mutual_info_score
 # from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 from models.selector import *
-
-from collections import Counter
 
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
@@ -155,7 +154,14 @@ if __name__ == '__main__':
     args = arg_parse(argparse.ArgumentParser())
     
     conf, conf_path = configuration(args)
-    checkpt_file = "./selector/"+"MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+"_mg:"+str(conf['margin'])+"_nl:"+str(conf['nlayer'])+"_ms1"+str(conf['ms1'])+"_ms2"+str(conf['ms2'])+"_gm"+str(conf['gm'])+".pth"
+    if conf['sage'] == True:
+        checkpt_file = "./selector/"+"MLP_SAGE_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+"_mg:"+str(conf['margin'])+"_nl:"+str(conf['nlayer'])+"_ms1"+str(conf['ms1'])+"_ms2"+str(conf['ms2'])+"_gm"+str(conf['gm'])+".pth"
+    else :
+        checkpt_file = "./selector/"+"MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+"_mg:"+str(conf['margin'])+"_nl:"+str(conf['nlayer'])+"_ms1"+str(conf['ms1'])+"_ms2"+str(conf['ms2'])+"_gm"+str(conf['gm'])+".pth"
+    
+    # tensorboard name
+    board_name = "MLP_lr:"+str(conf['lr'])+"_wd:"+str(conf['wd'])+"_mg:"+str(conf['margin'])+"_nl:"+str(conf['nlayer'])+"_ms1"+str(conf['ms1'])+"_ms2"+str(conf['ms2'])+"_gm"+str(conf['gm'])
+    writer = SummaryWriter("./Log/Log_sel/"+board_name)
     
     # random seed
     np.random.seed(conf['seed'])
@@ -205,6 +211,20 @@ if __name__ == '__main__':
 
         if bad_counter == 200: # modify patience 200
             break
+        
+        # write
+        writer.add_scalar('Loss/train', loss_train, epoch)
+        writer.add_scalar('NMI/train', nmi_train, epoch)
+        writer.add_scalar('F1_macro/train', macro_train, epoch)
+        writer.add_scalar('F1_micro/train', micro_train, epoch)
+        
+        writer.add_scalar('Loss/val', loss_val, epoch)
+        writer.add_scalar('NMI/val', nmi_val, epoch)
+        writer.add_scalar('F1_macro/val', macro_val, epoch)
+        writer.add_scalar('F1_micro/val', micro_val, epoch)
+        
+        writer.flush()
+    writer.close()
     
     loss_test, nmi_test, macro_test, micro_test = test()
     
