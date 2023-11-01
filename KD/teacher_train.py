@@ -1,4 +1,5 @@
 import time
+import datetime
 import random
 import argparse
 import numpy as np
@@ -6,6 +7,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
+
+from torch.utils.tensorboard import SummaryWriter
 
 import scipy.sparse as sp
 import copy
@@ -18,8 +21,8 @@ from models.model_utils import *
 from data.utils import load_tensor_data, check_writable
 from data.get_dataset import get_experiment_config
 
-# from utils.logger import get_logger
 from utils.metrics import accuracy
+from sklearn.metrics import f1_score
 
 # adapted from MustaD & CPF
 
@@ -66,7 +69,6 @@ def choose_model(conf):
                           aggregator_type=conf['agg_type']).to(conf['device'])
     elif conf['model_name'] == 'GCNII':
         if conf['dataset'] == 'citeseer':
-            conf['layer'] = 32
             conf['hidden'] = 256
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
@@ -82,6 +84,8 @@ def choose_model(conf):
                       lamda=conf['lamda'],
                       alpha=conf['alpha'],
                       variant=False).to(conf['device'])
+    else:
+        raise ValueError(f'Undefined Model.')
     return model
 
 def train():
@@ -97,14 +101,18 @@ def train():
         output, _ = model(features, adj)
     else:
         raise ValueError(f'Undefined Model')
+    
     output = F.log_softmax(output, dim=1)
+    out = np.argmax(output.detach().cpu(), axis=1)
     
     acc_train = accuracy(output[idx_train], labels[idx_train].to(conf['device']))
+    f1_macro = f1_score(labels[idx_train].detach().cpu(), out, average='macro')
+    f1_micro = f1_score(labels[idx_train].detach().cpu(), out, average='micro')
     loss_train = F.nll_loss(output[idx_train], labels[idx_train].to(conf['device']))
     loss_train.backward()
     optimizer.step()
     
-    return loss_train.item(),acc_train.item()
+    return loss_train.item(), acc_train.item(), f1_macro, f1_micro
 
 def validate():
     model.eval()
@@ -123,10 +131,14 @@ def validate():
             raise ValueError(f'Undefined Model')
 
         output = F.log_softmax(output, dim=1)
-        loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(conf['device']))
+        out = np.argmax(output.detach().cpu(), axis=1)
+        
         acc_val = accuracy(output[idx_val], labels[idx_val].to(conf['device']))
+        f1_macro = f1_score(labels[idx_val].detach().cpu(), out, average='macro')
+        f1_micro = f1_score(labels[idx_val].detach().cpu(), out, average='micro')
+        loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(conf['device']))
 
-        return loss_val.item(),acc_val.item()
+    return loss_val.item(), acc_val.item(), f1_macro, f1_micro
 
 def test():
     model.load_state_dict(torch.load(checkpt_file))
@@ -144,11 +156,14 @@ def test():
             raise ValueError(f'Undefined Model')
         
         output = F.log_softmax(output, dim=1)
-        loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(conf['device']))
+        out = np.argmax(output.detach().cpu(), axis=1)
+        
         acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
-        print("Test set results: loss= {:.4f} acc_test= {:.4f}".format(
-            loss_test.item(), acc_test.item()))
-    return loss_test.item(),acc_test.item()
+        f1_macro = f1_score(labels[idx_test].detach().cpu(), out, average='macro')
+        f1_micro = f1_score(labels[idx_test].detach().cpu(), out, average='micro')
+        loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(conf['device']))
+        
+    return loss_test.item(), acc_test.item(), f1_macro, f1_micro
 
 if __name__ == '__main__':
     # argument parse
@@ -199,22 +214,17 @@ if __name__ == '__main__':
                                weight_decay=conf['weight_decay'])
 
     
-    t_total = time.time()
+    start = time.time()
     bad_counter = 0
     best = 999999999
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train = train()
-        loss_val, acc_val = validate()
+        loss_train, acc_train, macro_train, micro_train = train()
+        loss_val, acc_val, macro_val, micro_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),
-            'train',
-            'loss:{:.3f}'.format(loss_train),
-            'acc:{:.2f}'.format(acc_train*100),
-            '| val',
-            'loss:{:.3f}'.format(loss_val),
-            'acc:{:.2f}'.format(acc_val*100))
+            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
@@ -226,9 +236,12 @@ if __name__ == '__main__':
 
         if bad_counter == 200: # modify patience 200 -> 50
             break
+    end = time.time()
+    result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    loss, acc = test()
+    loss_test, acc_test, macro_test, micro_test = test()
     
     print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print("Test loss.:{:.2f}".format(loss), "Test acc.:{:.2f}".format(acc*100))
+    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
+    print('Training Time: ', result_time[0])

@@ -8,7 +8,7 @@ global:
 
 # specific configurations of each model
 GCN:
-  num_layers: 4
+  num_layers: 6
   hidden: 32
   learning_rate: 0.01
   dropout: 0.8
