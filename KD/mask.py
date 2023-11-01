@@ -30,7 +30,7 @@ def get_mutation_masks(masks, divide_val):
     
     return masks
 
-def selection(model, t_hiddens, labels, loss, optimizer, masks, num_mask, data_size):
+def selection(model, t_hiddens, labels, loss, optimizer, masks, num_mask, mask_size, unmask_size):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     cpu = torch.device('cpu')
     model.eval()
@@ -60,7 +60,7 @@ def selection(model, t_hiddens, labels, loss, optimizer, masks, num_mask, data_s
         # top 51%~75% of masks => 50% mutation
         new_mask = np.append(new_mask, get_mutation_masks(sorted_masks[int(num_mask/4*2):int(num_mask/4*3)], 2), axis=0)
         # top 76%~100% of masks => random generate
-        new_mask = np.append(new_mask, get_new_random_masks(int(num_mask/4), data_size, int(data_size/2)), axis=0)
+        new_mask = np.append(new_mask, get_new_random_masks(int(num_mask/4), mask_size, unmask_size), axis=0)
 
         new_mask = torch.Tensor(new_mask).to(device)
         # best loss mask

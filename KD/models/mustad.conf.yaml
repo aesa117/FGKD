@@ -25,12 +25,13 @@ GAT:
   alpha: 0.2
   weight_decay: 0.01
   temp: 1.0
-  num_heads: 1
+  num_heads: 4
   att: True
   layer_flag: False
 GraphSAGE:
   agg_type: 'gcn'   # mean/gcn/pool/lstm
   embed_dim: 64
+  num_layers: 6
   batch_size: 256
   num_samples: 10
   learning_rate: 0.01

@@ -80,12 +80,12 @@ def choose_model(conf):
     elif conf['model_name'] == 'GCNII':
         if args.dataset == 'citeseer':
             conf['layer'] = 32
-            conf['hidden'] = 128
+            conf['hidden'] = 64
             teacher_conf['hidden'] = 256
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
         elif args.dataset == 'pubmed':
-            conf['hidden'] = 128
+            conf['hidden'] = 64
             teacher_conf['hidden'] = 256
             conf['lamda'] = 0.4
             conf['dropout'] = 0.5

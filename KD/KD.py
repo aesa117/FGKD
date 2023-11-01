@@ -72,12 +72,11 @@ def choose_model(conf):
                           aggregator_type=conf['agg_type']).to(conf['device'])
     elif conf['model_name'] == 'GCNII':
         if args.dataset == 'citeseer':
-            conf['layer'] = 16
-            conf['hidden'] = 128
+            conf['hidden'] = 64
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
         elif args.dataset == 'pubmed':
-            conf['hidden'] = 128
+            conf['hidden'] = 64
             conf['lamda'] = 0.4
             conf['dropout'] = 0.5
         model = GCNII(nfeat=features.shape[1],
@@ -95,10 +94,10 @@ def choose_model(conf):
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
         embedding_size = 128
-        inout_size = 64
+        inout_size = 32
     else:
         embedding_size = 256
-        inout_size = 128
+        inout_size = 64
     
     selector_model = MLP(num_layers=conf['nlayer'],
                          input_dim=inout_size,
@@ -140,7 +139,7 @@ def train():
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
 
     # mask selection - training and extract masks for clustering score
-    updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, data_size)
+    updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
     best_mask = updated_masks[0]
     hidden_embedding = t_hidden[idx_train]
     
@@ -202,7 +201,7 @@ def validate():
         loss_CE = F.nll_loss(s_out[idx_val], labels[idx_val].to(conf['device']))
         acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
         
-        updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, data_size)
+        updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
         best_mask = updated_masks[0]
         hidden_embedding = t_hidden[idx_train]
         
@@ -322,11 +321,19 @@ if __name__ == '__main__':
     
     # initialize mask
     num_masks = 20
-    if conf['model_name'] in ['GCN', 'GAT', 'GCNII']:
-        data_size = 64
+    if conf['model_name'] == 'GCN':
+        mask_size = 32
+        unmask_size = 96
+    elif conf['model_name'] == 'GAT':
+        mask_size = 32
+        unmask_size = 96
+    elif conf['model_name'] == 'GCNII':
+        mask_size = 32
+        unmask_size = 96
     else: # GraphSAGE
-        data_size = 128
-    masks = get_new_random_masks(num_masks, data_size, data_size/2)
+        mask_size = 64
+        unmask_size = 192
+    masks = get_new_random_masks(num_masks, mask_size, unmask_size)
     masks = torch.Tensor(masks).to(conf['device'])
     
     
