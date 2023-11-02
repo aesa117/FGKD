@@ -1,24 +1,23 @@
 import time
 import datetime
-import random
 import argparse
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
+from torch.utils.tensorboard import SummaryWriter
 
 from torch.utils.tensorboard import SummaryWriter
 
 import scipy.sparse as sp
-import copy
 from pathlib import Path
 
 import dgl
 from models.model_KD import *
 from models.model_utils import *
 
-from data.utils import load_tensor_data, check_writable
+from data.utils import load_tensor_data
 from data.get_dataset import get_experiment_config
 
 from utils.metrics import accuracy
