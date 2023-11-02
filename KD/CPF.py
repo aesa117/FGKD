@@ -4,6 +4,8 @@ import torch
 import torch.optim as optim
 import time
 import datetime
+from torch.utils.tensorboard import SummaryWriter
+
 from pathlib import Path
 from models.model_KD import *
 from models.PLP import *
@@ -13,12 +15,12 @@ from data.get_dataset import get_experiment_config
 from data.utils import load_tensor_data, initialize_label
 from utils.metrics import *
 from utils.metrics import accuracy
+from sklearn.metrics import f1_score
 
 from mask import *
 from models.selector import *
 
-from pytorch_metric_learning import losses, miners
-from sklearn.metrics.cluster import normalized_mutual_info_score
+from pytorch_metric_learning import losses
 
 def arg_parse(parser):
     parser.add_argument('--dataset', type=str, default='cora', help='Dataset')
@@ -57,30 +59,27 @@ def choose_model(conf, G, features, labels, byte_idx_train, labels_one_hot):
 
 def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        embedding_size = 64
-        hidden_embedding = 128
-    else:
         embedding_size = 128
-        hidden_embedding = 256
+        inout_size = 32
+    else:
+        embedding_size = 256
+        inout_size = 64
+    
     selector_model = MLP(num_layers=conf['nlayer'],
-                         input_dim=conf['feaetures'],
-                         hidden_dim=hidden_embedding, 
-                         output_dim=embedding_size,
+                         input_dim=inout_size,
+                         hidden_dim=embedding_size, 
+                         output_dim=inout_size,
                          dropout=0.5)
     
-    # add new input layer after delete first layer
-    selector_model.layers = selector_model.layers[1:]
-    input = nn.Linear(embedding_size, hidden_embedding)
-    selector_model.layers = nn.Sequential(input, *selector_model.layers)
+    # delete first layer & final layer
+    selector_model.layers = selector_model.layers[1:-1]
+    input = nn.Linear(inout_size, embedding_size)
+    output = nn.Linear(embedding_size, inout_size)
+    selector_model.layers = nn.Sequential(input, *selector_model.layers, output)
     
     return selector_model
 
 def train():
-    """
-    Start training with a stored hyperparameters on the dataset
-    :make sure teacher, student, optimizer, node features, adjacency, train index is defined aforehead
-    :return: train loss, train accuracy
-    """
     teacher.eval()
     model.train()
     optimizer.zero_grad()
@@ -102,17 +101,24 @@ def train():
         raise ValueError(f'Undefined Model')
     
     s_out = F.log_softmax(s_output, dim=1)
+    out_arg = np.argmax(s_out.detach().cpu(), axis=1)
     t_out = F.log_softmax(t_output, dim=1)
-    loss_dist = my_loss(s_out[idx_no_train], t_out[idx_no_train], 2).to(conf['device'])
+    loss_dist = my_loss(s_out[idx_train], t_out[idx_train], 2).to(conf['device'])
+    
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
+    f1_macro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='macro')
+    f1_micro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='micro')
 
     # mask selection - training and extract masks for clustering score
-    updated_masks = selection(selector_model, t_hidden, labels, normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
+    updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
     best_mask = updated_masks[0]
-    masked_t_hidden = best_mask * t_hidden
+    hidden_embedding = t_hidden[idx_train]
+    
+    idx = torch.nonzero(best_mask!=0).T
+    masked_t_hidden = hidden_embedding[:, idx]
     
     # loss_hidden
-    t_x = masked_t_hidden[idx_train]
+    t_x = masked_t_hidden
     s_x = s_hidden[idx_train]
     loss_hidden = kl_kernel(t_x, s_x)
 
@@ -121,7 +127,7 @@ def train():
     loss_train.backward()
     optimizer.step()
 
-    return loss_train.item(),acc_train.item()
+    return loss_train.item(), acc_train.item(), f1_macro, f1_micro, sel_loss
 
 def kl_kernel(t_x, s_x):
     kl_loss_op = torch.nn.KLDivLoss(reduction='none')
@@ -155,24 +161,31 @@ def validate():
             raise ValueError(f'Undefined Model')
         
         s_out = F.log_softmax(s_output, dim=1)
+        out_arg = np.argmax(s_out.detach().cpu(), axis=1)
         t_out = F.log_softmax(t_output, dim=1)
         loss_dist = my_loss(s_out[idx_no_train], t_out[idx_no_train], 2).to(conf['device'])
-        acc_val = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
+        
+        acc_val = accuracy(s_out[idx_val], labels[idx_val].to(conf['device']))
+        f1_macro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='macro')
+        f1_micro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='micro')
 
-        # mask selection - training and extract masks for clustering score
-        updated_masks = selection(selector_model, t_hidden, labels, normalized_mutual_info_score, selector_loss, selector_optimizer, masks, num_masks, data_size)
+        # mask selection - validation and extract masks for clustering score
+        updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
         best_mask = updated_masks[0]
-        masked_t_hidden = best_mask * t_hidden
+        hidden_embedding = t_hidden[idx_val]
+        
+        idx = torch.nonzero(best_mask!=0).T
+        masked_t_hidden = hidden_embedding[:, idx]
         
         # loss_hidden
-        t_x = masked_t_hidden[idx_train]
-        s_x = s_hidden[idx_train]
+        t_x = masked_t_hidden
+        s_x = s_hidden[idx_val]
         loss_hidden = kl_kernel(t_x, s_x)
 
         # loss_final
         loss_val = loss_dist + args.lbd_embd*loss_hidden
-        acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
-        return loss_val.item(),acc_val.item()
+        
+        return loss_val.item(), acc_val.item(), f1_macro, f1_micro, sel_loss
 
 def test():
     """
@@ -184,8 +197,15 @@ def test():
     model.eval()
     with torch.no_grad():
         output = model(G.ndata['feat'], labels_init)[0]
-        acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
-        return acc_test.item()
+        
+        out = F.log_softmax(output, dim=1)
+        out_arg = np.argmax(out.detach().cpu(), axis=1)
+        
+        acc_test = accuracy(out[idx_test], labels[idx_test].to(conf['device']))
+        f1_macro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='macro')
+        f1_micro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='micro')
+        
+        return acc_test.item(), f1_macro, f1_micro
 
 if __name__ == '__main__':
     temperature = 2
@@ -194,16 +214,15 @@ if __name__ == '__main__':
     # teacher model-specific configuration
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
-    t_PATH = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
-    checkpt_file = "./KD_student/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
     
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
+    
     # random seed
     np.random.seed(conf['seed'])
     torch.manual_seed(conf['seed'])
@@ -217,11 +236,17 @@ if __name__ == '__main__':
     conf = dict(conf, **args.__dict__)
     print(conf)
     
-    # random seed
-    np.random.seed(conf['seed'])
-    torch.manual_seed(conf['seed'])
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    # check point file path
+    t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(teacher_conf['dataset'])
+    t_PATH += str(teacher_conf['dataset'])+"_lr:"+str(teacher_conf['learning_rate'])+"_wd:"+str(teacher_conf['weight_decay'])+"_nl:"+str(teacher_conf['num_layers'])+".pth"
+    
+    checkpt_file = "./CPF_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    checkpt_file += "lbd_embd"+str(conf['lbd_embd'])+".pth"
+    
+    # tensorboard name
+    board_name = "CPF_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    writer = SummaryWriter("./Log/Log_CPF/"+board_name)
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \

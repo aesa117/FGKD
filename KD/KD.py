@@ -4,6 +4,8 @@ import torch
 import torch.optim as optim
 import time
 import datetime
+from torch.utils.tensorboard import SummaryWriter
+
 from pathlib import Path
 from models.model_KD import *
 from models.model_utils import *
@@ -149,7 +151,6 @@ def train():
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
     f1_macro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='macro')
     f1_micro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='micro')
-    
 
     # mask selection - training and extract masks for clustering score
     updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
@@ -205,6 +206,7 @@ def validate():
         f1_macro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='macro')
         f1_micro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='micro')
         
+        # mask selection - validation and extract masks for clustering score
         updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
         best_mask = updated_masks[0]
         hidden_embedding = t_hidden[idx_train]
@@ -260,12 +262,10 @@ if __name__ == '__main__':
     # teacher model-specific configuration
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
-    t_PATH = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
-    checkpt_file = "./KD_student/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
     
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
@@ -284,11 +284,17 @@ if __name__ == '__main__':
     conf = dict(conf, **args.__dict__)
     print(conf)
     
-    # random seed
-    np.random.seed(conf['seed'])
-    torch.manual_seed(conf['seed'])
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    # check point file path
+    t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(teacher_conf['dataset'])
+    t_PATH += str(teacher_conf['dataset'])+"_lr:"+str(teacher_conf['learning_rate'])+"_wd:"+str(teacher_conf['weight_decay'])+"_nl:"+str(teacher_conf['num_layers'])+".pth"
+    
+    checkpt_file = "./KD_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
+    
+    # tensorboard name
+    board_name = "KD_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    writer = SummaryWriter("./Log/Log_KD/"+board_name)
 
     # Load data
     adj, adj_sp, features, labels, labels_one_hot, idx_train, idx_val, idx_test = \
@@ -369,6 +375,19 @@ if __name__ == '__main__':
 
         if bad_counter == 200: # modify patience 200 -> 50
             break
+        
+        # write
+        writer.add_scalar('Loss/train', loss_train, epoch)
+        writer.add_scalar('Acc/train', acc_train, epoch)
+        writer.add_scalar('F1_macro/train', macro_train, epoch)
+        writer.add_scalar('F1_micro/train', micro_train, epoch)
+        
+        writer.add_scalar('Loss/val', loss_val, epoch)
+        writer.add_scalar('Acc/val', acc_val, epoch)
+        writer.add_scalar('F1_macro/val', macro_val, epoch)
+        writer.add_scalar('F1_micro/val', micro_val, epoch)
+    writer.close()
+        
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     

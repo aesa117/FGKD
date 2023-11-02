@@ -8,9 +8,6 @@ import torch.optim as optim
 from utils import *
 from torch.utils.tensorboard import SummaryWriter
 
-from torch.utils.tensorboard import SummaryWriter
-
-import scipy.sparse as sp
 from pathlib import Path
 
 import dgl
@@ -182,6 +179,14 @@ if __name__ == '__main__':
     conf = dict(conf, **args.__dict__)
     print(conf)
     
+    # check point file path
+    checkpt_file = "./teacher/Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])+".pth"
+    
+    # tensorboard name
+    board_name = "Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    writer = SummaryWriter("./Log/Log_teacher/"+board_name)
+    
     # random seed
     np.random.seed(conf['seed'])
     torch.manual_seed(conf['seed'])
@@ -198,7 +203,6 @@ if __name__ == '__main__':
     
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
-    checkpt_file = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     model = choose_model(conf)
     if conf['model_name'] == 'GCNII':
@@ -228,6 +232,8 @@ if __name__ == '__main__':
             best = loss_val
             best_epoch = epoch
             acc = acc_val
+            f1_macro = macro_val
+            f1_micro = micro_val
             torch.save(model.state_dict(), checkpt_file)
             bad_counter = 0
         else:
@@ -235,6 +241,19 @@ if __name__ == '__main__':
 
         if bad_counter == 200: # modify patience 200 -> 50
             break
+        
+        # write
+        writer.add_scalar('Loss/train', loss_train, epoch)
+        writer.add_scalar('Acc/train', acc_train, epoch)
+        writer.add_scalar('F1_macro/train', macro_train, epoch)
+        writer.add_scalar('F1_micro/train', micro_train, epoch)
+        
+        writer.add_scalar('Loss/val', loss_val, epoch)
+        writer.add_scalar('Acc/val', acc_val, epoch)
+        writer.add_scalar('F1_macro/val', macro_val, epoch)
+        writer.add_scalar('F1_micro/val', micro_val, epoch)
+    writer.close()
+    
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     

@@ -4,13 +4,15 @@ import torch
 import torch.optim as optim
 import time
 import datetime
+from torch.utils.tensorboard import SummaryWriter
+
 from pathlib import Path
 from models.model_KD import *
 from models.model_KD_student import *
 from models.model_utils import *
 
 from data.get_dataset import get_experiment_config
-from data.utils import load_tensor_data, initialize_label
+from data.utils import load_tensor_data
 
 from utils.metrics import accuracy
 from sklearn.metrics import f1_score
@@ -268,12 +270,10 @@ if __name__ == '__main__':
     # teacher model-specific configuration
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
-    t_PATH = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
     
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'mustad.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
-    checkpt_file = "./KD_student/student_"+str(args.student)+"_"+str(args.dataset)+".pth"
     
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
@@ -292,6 +292,18 @@ if __name__ == '__main__':
     conf = dict(conf, **args.__dict__)
     print(conf)
     
+    # check point file path
+    t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(teacher_conf['dataset'])
+    t_PATH += str(teacher_conf['dataset'])+"_lr:"+str(teacher_conf['learning_rate'])+"_wd:"+str(teacher_conf['weight_decay'])+"_nl:"+str(teacher_conf['num_layers'])+".pth"
+    
+    checkpt_file = "./MustaD_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
+    
+    # tensorboard name
+    board_name = "MustaD_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    writer = SummaryWriter("./Log/Log_KD/"+board_name)
+    
     # random seed
     np.random.seed(conf['seed'])
     torch.manual_seed(conf['seed'])
@@ -303,7 +315,6 @@ if __name__ == '__main__':
             load_tensor_data(conf['dataset'], conf['device'], config_data_path)
     G = dgl.graph((adj_sp.row, adj_sp.col)).to(conf['device'])
     G.ndata['feat'] = features
-    labels_init = initialize_label(idx_train, labels_one_hot).to(conf['device'])
     print('We have %d nodes.' % G.number_of_nodes())
     print('We have %d edges.' % G.number_of_edges())
 
@@ -376,6 +387,19 @@ if __name__ == '__main__':
 
         if bad_counter == 200: # modify patience 200 -> 50
             break
+        
+        # write
+        writer.add_scalar('Loss/train', loss_train, epoch)
+        writer.add_scalar('Acc/train', acc_train, epoch)
+        writer.add_scalar('F1_macro/train', macro_train, epoch)
+        writer.add_scalar('F1_micro/train', micro_train, epoch)
+        
+        writer.add_scalar('Loss/val', loss_val, epoch)
+        writer.add_scalar('Acc/val', acc_val, epoch)
+        writer.add_scalar('F1_macro/val', macro_val, epoch)
+        writer.add_scalar('F1_micro/val', micro_val, epoch)
+    writer.close()
+        
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
