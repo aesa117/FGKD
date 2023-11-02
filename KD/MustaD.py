@@ -295,13 +295,13 @@ if __name__ == '__main__':
     elif conf['model_name'] == 'GraphSAGE':
         selector_path = "./selector/MLP_large_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
     
-    checkpt_file = "./MustaD_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file = "./KD/MustaD/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
     checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
     checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
     
     # tensorboard name
     board_name = "MustaD_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
-    writer = SummaryWriter("./Log/Log_KD/"+board_name)
+    writer = SummaryWriter("./Log/Log_MustaD/"+board_name)
     
     # random seed
     np.random.seed(conf['seed'])

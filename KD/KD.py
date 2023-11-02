@@ -290,7 +290,7 @@ if __name__ == '__main__':
         mask_size = 64
         unmask_size = 192
     
-    checkpt_file = "./KD_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
+    checkpt_file = "./KD/HKD/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
     checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
     checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
     
