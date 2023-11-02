@@ -1,25 +1,25 @@
 import time
-import random
+import datetime
 import argparse
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from utils import *
+from torch.utils.tensorboard import SummaryWriter
 
 import scipy.sparse as sp
-import copy
 from pathlib import Path
 
 import dgl
 from models.model_KD import *
 from models.model_utils import *
 
-from data.utils import load_tensor_data, check_writable
+from data.utils import load_tensor_data
 from data.get_dataset import get_experiment_config
 
-# from utils.logger import get_logger
 from utils.metrics import accuracy
+from sklearn.metrics import f1_score
 
 # adapted from MustaD & CPF
 
@@ -66,7 +66,6 @@ def choose_model(conf):
                           aggregator_type=conf['agg_type']).to(conf['device'])
     elif conf['model_name'] == 'GCNII':
         if conf['dataset'] == 'citeseer':
-            conf['layer'] = 32
             conf['hidden'] = 256
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
