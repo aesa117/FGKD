@@ -1,21 +1,17 @@
 import argparse
-import random
 import numpy as np
 import torch
 import torch.optim as optim
-import copy
 import time
-import itertools
+import datetime
 from pathlib import Path
 from models.model_KD import *
 from models.PLP import *
 from models.model_utils import *
 
 from data.get_dataset import get_experiment_config
-from data.utils import load_tensor_data, load_ogb_data, check_writable, initialize_label
-from utils.logger import output_results, get_logger
+from data.utils import load_tensor_data, initialize_label
 from utils.metrics import *
-from collections import defaultdict, namedtuple
 from utils.metrics import accuracy
 
 from mask import *

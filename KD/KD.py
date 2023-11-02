@@ -3,20 +3,21 @@ import numpy as np
 import torch
 import torch.optim as optim
 import time
+import datetime
 from pathlib import Path
 from models.model_KD import *
 from models.model_utils import *
 
 from data.get_dataset import get_experiment_config
 from data.utils import load_tensor_data, initialize_label
+
 from utils.metrics import accuracy
+from sklearn.metrics import f1_score
 
 from mask import *
 from models.selector import *
 
 from pytorch_metric_learning import losses
-# from sklearn.metrics.cluster import normalized_mutual_info_score
-# from pytorch_metric_learning.utils.accuracy_calculator import AccuracyCalculator
 
 
 def arg_parse(parser):
@@ -35,6 +36,12 @@ def arg_parse(parser):
     parser.add_argument('--ntrials', type=int, default=10, help='Number of trials')
     parser.add_argument('--njobs', type=int, default=10, help='Number of jobs')
     return parser.parse_args()
+
+def kl_kernel(t_x, s_x):
+    kl_loss_op = torch.nn.KLDivLoss(reduction='none')
+    t_x = F.softmax(t_x, dim=1)
+    s_x = F.log_softmax(s_x, dim=1)
+    return torch.mean(torch.sum(kl_loss_op(s_x, t_x), dim=1))
 
 def choose_model(conf):
     if conf['model_name'] == 'GCN':
@@ -73,10 +80,12 @@ def choose_model(conf):
     elif conf['model_name'] == 'GCNII':
         if args.dataset == 'citeseer':
             conf['hidden'] = 64
+            teacher_conf['hidden'] = 256
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
         elif args.dataset == 'pubmed':
             conf['hidden'] = 64
+            teacher_conf['hidden'] = 256
             conf['lamda'] = 0.4
             conf['dropout'] = 0.5
         model = GCNII(nfeat=features.shape[1],
@@ -135,8 +144,12 @@ def train():
         raise ValueError(f'Undefined Model')
 
     s_out = F.log_softmax(s_output, dim=1)
+    out_arg = np.argmax(s_out.detach().cpu(), axis=1)
     loss_CE = F.nll_loss(s_out[idx_train], labels[idx_train].to(conf['device']))
     acc_train = accuracy(s_out[idx_train], labels[idx_train].to(conf['device']))
+    f1_macro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='macro')
+    f1_micro = f1_score(labels[idx_train].detach().cpu(), out_arg, average='micro')
+    
 
     # mask selection - training and extract masks for clustering score
     updated_masks, sel_loss = selection(selector_model, t_hidden[idx_train], labels[idx_train], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
@@ -155,7 +168,6 @@ def train():
     # loss_hidden
     t_x = masked_t_hidden
     s_x = s_hidden[idx_train]
-    #print(t_x.shape, s_x.shape)
     loss_hidden = kl_kernel(t_x, s_x)
 
     # loss_final
@@ -163,20 +175,9 @@ def train():
     loss_train.backward()
     optimizer.step()
 
-    return loss_train.item(),acc_train.item(), sel_loss
-
-def kl_kernel(t_x, s_x):
-    kl_loss_op = torch.nn.KLDivLoss(reduction='none')
-    t_x = F.softmax(t_x, dim=1)
-    s_x = F.log_softmax(s_x, dim=1)
-    return torch.mean(torch.sum(kl_loss_op(s_x, t_x), dim=1))
+    return loss_train.item(), acc_train.item(), f1_macro, f1_micro, sel_loss
 
 def validate():
-    """
-    Validate the model
-    make sure teacher, student, optimizer, node features, adjacency, validation index is defined aforehead
-    :return: validation loss, validation accuracy
-    """
     teacher.eval()
     model.eval()
 
@@ -196,10 +197,13 @@ def validate():
             s_output, s_hidden = model(features, adj)
         else:
             raise ValueError(f'Undefined Model')
-            
+        
         s_out = F.log_softmax(s_output, dim=1)
+        out_arg = np.argmax(s_out.detach().cpu(), axis=1)
         loss_CE = F.nll_loss(s_out[idx_val], labels[idx_val].to(conf['device']))
-        acc_val = accuracy(s_output[idx_val], labels[idx_val].to(conf['device']))
+        acc_val = accuracy(s_out[idx_val], labels[idx_train].to(conf['device']))
+        f1_macro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='macro')
+        f1_micro = f1_score(labels[idx_val].detach().cpu(), out_arg, average='micro')
         
         updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
         best_mask = updated_masks[0]
@@ -220,16 +224,13 @@ def validate():
 
         # loss_final- lbd_pred, lbe_embd are still not defined
         loss_val = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
-        return loss_val.item(),acc_val.item(),sel_loss
+    
+    return loss_val.item(), acc_val.item(), f1_macro, f1_micro, sel_loss
 
 def test():
-    """
-    Test the model
-    make sure student, node features, adjacency, test index is defined aforehead
-    :return: test accuracy
-    """
     model.load_state_dict(torch.load(checkpt_file))
     model.eval()
+    
     with torch.no_grad():
         if conf['model_name'] == 'GCN':
             output, _ = model(G.ndata['feat'])
@@ -242,8 +243,14 @@ def test():
         else:
             raise ValueError(f'Undefined Model')
         
-        acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
-        return acc_test.item()
+        out = F.log_softmax(output, dim=1)
+        out_arg = np.argmax(out.detach().cpu(), axis=1)
+        
+        acc_test = accuracy(out[idx_test], labels[idx_test].to(conf['device']))
+        f1_macro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='macro')
+        f1_micro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='micro')
+        
+    return acc_test.item(), f1_macro, f1_micro
 
 
 if __name__ == '__main__':
@@ -254,6 +261,7 @@ if __name__ == '__main__':
     teacher_config_path = Path.cwd().joinpath('models', 'train.conf.yaml')
     teacher_conf = get_training_config(teacher_config_path, model_name=args.teacher)
     t_PATH = "./teacher/teacher_"+str(args.teacher)+"_"+str(args.dataset)+".pth"
+    
     # student model-specific configuration
     config_path = Path.cwd().joinpath('models', 'distill.conf.yaml')
     conf = get_training_config(config_path, model_name=args.student)
@@ -262,6 +270,7 @@ if __name__ == '__main__':
     # dataset-specific configuration
     config_data_path = Path.cwd().joinpath('data', 'dataset.conf.yaml')
     conf['division_seed'] = get_experiment_config(config_data_path)['seed']
+    
     # random seed
     np.random.seed(conf['seed'])
     torch.manual_seed(conf['seed'])
@@ -270,7 +279,6 @@ if __name__ == '__main__':
     
     conf['device'] = torch.device("cuda:" + str(args.device))
     teacher_conf['device'] = torch.device("cuda:" + str(args.device))
-    cpu = torch.device("cpu")
     
     # print configuration dict
     conf = dict(conf, **args.__dict__)
@@ -299,6 +307,7 @@ if __name__ == '__main__':
     teacher.load_state_dict(torch.load(t_PATH))
     teacher.eval()
     model = choose_model(conf)
+    
     if conf['model_name'] == 'GCNII':
         if conf['dataset'] == 'pubmed':
             conf['wd1'] = 0.0005
@@ -337,18 +346,18 @@ if __name__ == '__main__':
     masks = torch.Tensor(masks).to(conf['device'])
     
     
-    t_total = time.time()
+    start = time.time()
     bad_counter = 0
     best = 999999999
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train, sel_loss_train = train()
-        loss_val, acc_val, sel_loss_val = validate()
+        loss_train, acc_train, macro_train, micro_train, sel_train = train()
+        loss_val, acc_val, macro_val, micro_val, sel_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),'train','loss:{:.3f}'.format(loss_train),'acc:{:.2f}'.format(acc_train*100),
-            '| val','loss:{:.3f}'.format(loss_val),'acc:{:.2f}'.format(acc_val*100))
-            print('selector training loss : {:.3f}'.format(sel_loss_train), 'validation loss : {:.3f}'.format(sel_loss_val))
+            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
+            print('selector model train loss:{:.3f}'.format(sel_train), 'val loss{:.3f}'.format(sel_val))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
@@ -358,11 +367,14 @@ if __name__ == '__main__':
         else:
             bad_counter += 1
 
-        if bad_counter == 200: # modify patience 200
+        if bad_counter == 200: # modify patience 200 -> 50
             break
+    end = time.time()
+    result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    acc = test()
+    acc_test, macro_test, micro_test = test()
     
-    print('The number of parameters in the student: {:04d}'.format(count_params(model)))
+    print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print("Test acc.:{:.2f}".format(acc*100))
+    print('Student test acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
+    print('Training Time: ', result_time[0])
