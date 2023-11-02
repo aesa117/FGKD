@@ -28,15 +28,9 @@ def arg_parse(parser):
     parser.add_argument('--student', type=str, default='PLP', help='Student Model')
     parser.add_argument('--lbd_pred', type=float, default=0, help='lambda for prediction loss')
     parser.add_argument('--lbd_embd', type=float, default=0, help='lambda for embedding loss')
-    parser.add_argument('--distill', action='store_false', default=True, help='Distill or not')
+    parser.add_argument('--mask', type=int, default=20, help="mask size")
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
-    parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
-    parser.add_argument('--mlp_layers', type=int, default=2, help='MLP layer, 0 means not add feature mlp/lr')
-    parser.add_argument('--grad', type=int, default=1, help='output grad or not')
 
-    parser.add_argument('--automl', action='store_true', default=False, help='Automl or not')
-    parser.add_argument('--ntrials', type=int, default=10, help='Number of trials')
-    parser.add_argument('--njobs', type=int, default=10, help='Number of jobs')
     return parser.parse_args()
 
 def kl_kernel(t_x, s_x):
@@ -110,7 +104,7 @@ def selector_model_init(conf):
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
         embedding_size = 128
         inout_size = 32
-    else:
+    else: # GraphSAGE
         embedding_size = 256
         inout_size = 64
     
@@ -296,6 +290,11 @@ if __name__ == '__main__':
     t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(teacher_conf['dataset'])
     t_PATH += str(teacher_conf['dataset'])+"_lr:"+str(teacher_conf['learning_rate'])+"_wd:"+str(teacher_conf['weight_decay'])+"_nl:"+str(teacher_conf['num_layers'])+".pth"
     
+    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
+        selector_path = "./selector/MLP_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
+    elif conf['model_name'] == 'GraphSAGE':
+        selector_path = "./selector/MLP_large_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
+    
     checkpt_file = "./MustaD_student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
     checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
     checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
@@ -340,6 +339,7 @@ if __name__ == '__main__':
     
     # selector model generate
     selector_model = selector_model_init(conf)
+    selector_model.load_state_dict(torch.load(selector_path))
     selector_model = selector_model.to(conf['device'])
     selector_loss = losses.TripletMarginLoss(margin=0.3, 
                                             swap=False,
@@ -348,7 +348,7 @@ if __name__ == '__main__':
     selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.001, weight_decay=0.001)
     
     # initialize mask
-    num_masks = 20
+    num_masks = conf['mask']
     if conf['model_name'] == 'GCN':
         mask_size = 32
         unmask_size = 96
