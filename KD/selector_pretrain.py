@@ -9,7 +9,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from models.model_utils import *
 
-from data.get_dataset import get_experiment_config, load_tensor_data
+from data.get_dataset import get_experiment_config
+from data.utils import load_tensor_data
 
 from pytorch_metric_learning import losses
 from sklearn.metrics import f1_score
@@ -17,9 +18,19 @@ from sklearn.metrics.cluster import normalized_mutual_info_score
 
 from models.selector import *
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--large', action='store_true', default=False, help='Student model type')
+    parser.add_argument('--large', type=str2bool, nargs='?', const=True, default=False, help='Student model type')
     parser.add_argument('--lr', type=float, default=0.01, help="Learning rate")
     parser.add_argument('--wd', type=float, default=0.001, help="Weight decay")
     parser.add_argument('--ms1', type=int, default=500, help="First milestone")

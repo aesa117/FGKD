@@ -39,11 +39,11 @@ def choose_model(conf, G, features, labels, byte_idx_train, labels_one_hot):
         model = PLP(g=G,
                     num_layers=conf['num_layers'],
                     in_dim=G.ndata['feat'].shape[1],
-                    emb_dim=conf['emb_dim'],
+                    emb_dim=conf['reduced_dim'],
                     num_classes=labels.max().item() + 1,
                     activation=F.relu,
-                    feat_drop=conf['feat_drop'],
-                    attn_drop=conf['attn_drop'],
+                    feat_drop=conf['dropout'],
+                    attn_drop=conf['att_dropout'],
                     residual=False,
                     byte_idx_train=byte_idx_train,
                     labels_one_hot=labels_one_hot,
@@ -99,12 +99,9 @@ def train():
     
     s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
     s_out = F.log_softmax(s_output, dim=1)
-    s_outarg = np.argmax(s_out[idx_no_train])
     t_out = F.log_softmax(t_output, dim=1)
     
     acc_train = accuracy(s_out[idx_no_train], labels[idx_no_train].to(conf['device']))
-    f1_macro = f1_score(labels[idx_no_train].detach().cpu(), s_outarg, average='macro')
-    f1_micro = f1_score(labels[idx_no_train].detach().cpu(), s_outarg, average='micro')
 
     # mask selection - training and extract masks for clustering score
     updated_masks, sel_loss = selection(selector_model, t_hidden[idx_no_train], labels[idx_no_train], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
@@ -127,7 +124,7 @@ def train():
     loss_train.backward()
     optimizer.step()
 
-    return loss_train.item(), acc_train.item(), f1_macro, f1_micro, sel_loss
+    return loss_train.item(), acc_train.item(), sel_loss
 
 def validate():
     teacher.eval()
@@ -147,12 +144,9 @@ def validate():
         
         s_output, s_hidden = model(G.ndata['feat'], labels_init)[0:2]
         s_out = F.log_softmax(s_output, dim=1)
-        s_outarg = np.argmax(s_out[idx_val])
         t_out = F.log_softmax(t_output, dim=1)
         
         acc_val = accuracy(s_out[idx_val], labels[idx_val].to(conf['device']))
-        f1_macro = f1_score(labels[idx_val].detach().cpu(), s_outarg, average='macro')
-        f1_micro = f1_score(labels[idx_val].detach().cpu(), s_outarg, average='micro')
 
         # mask selection - training and extract masks for clustering score
         updated_masks, sel_loss = selection(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
@@ -173,7 +167,7 @@ def validate():
         # loss_final
         loss_val = loss_dist + args.lbd_embd*loss_hidden
         
-    return loss_val.item(), acc_val.item(), f1_macro, f1_micro, sel_loss
+    return loss_val.item(), acc_val.item(), sel_loss
 
 def test():
     model.load_state_dict(torch.load(checkpt_file))
@@ -182,13 +176,10 @@ def test():
         output = model(G.ndata['feat'], labels_init)[0]
         
         out = F.log_softmax(output, dim=1)
-        out_arg = np.argmax(out.detach().cpu(), axis=1)
         
         acc_test = accuracy(out[idx_test], labels[idx_test].to(conf['device']))
-        f1_macro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='macro')
-        f1_micro = f1_score(labels[idx_test].detach().cpu(), out_arg, average='micro')
         
-    return acc_test.item(), f1_macro, f1_micro
+    return acc_test.item()
 
 if __name__ == '__main__':
     temperature = 2
@@ -220,8 +211,7 @@ if __name__ == '__main__':
     print(conf)
     
     # check point file path
-    t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(teacher_conf['dataset'])
-    t_PATH += str(teacher_conf['dataset'])+"_lr:"+str(teacher_conf['learning_rate'])+"_wd:"+str(teacher_conf['weight_decay'])+"_nl:"+str(teacher_conf['num_layers'])+".pth"
+    t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(conf['dataset'])+".pth"
     
     if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
         selector_path = "./selector/MLP_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
@@ -233,11 +223,11 @@ if __name__ == '__main__':
         unmask_size = 192
     
     checkpt_file = "./KD/CPF/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
-    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"
     checkpt_file += "lbd_embd"+str(conf['lbd_embd'])+".pth"
     
     # tensorboard name
-    board_name = "CPF_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    board_name = "CPF_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])
     writer = SummaryWriter("./Log/Log_CPF/"+board_name)
 
     # Load data
@@ -294,21 +284,17 @@ if __name__ == '__main__':
     best = 999999999
     best_epoch = 0
     acc = 0
-    f1_macro = 0
-    f1_micro = 0
     for epoch in range(500):
-        loss_train, acc_train, macro_train, micro_train, sel_train = train()
-        loss_val, acc_val, macro_val, micro_val, sel_val = validate()
+        loss_train, acc_train, sel_train = train()
+        loss_val, acc_val, sel_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
-            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
+            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100))
             print('selector model train loss:{:.3f}'.format(sel_train), 'val loss{:.3f}'.format(sel_val))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
             acc = acc_val
-            f1_macro = macro_val
-            f1_micro = micro_val
             torch.save(model.state_dict(), checkpt_file)
             bad_counter = 0
         else:
@@ -320,21 +306,17 @@ if __name__ == '__main__':
         # write
         writer.add_scalar('Loss/train', loss_train, epoch)
         writer.add_scalar('Acc/train', acc_train, epoch)
-        writer.add_scalar('F1_macro/train', macro_train, epoch)
-        writer.add_scalar('F1_micro/train', micro_train, epoch)
         
         writer.add_scalar('Loss/val', loss_val, epoch)
         writer.add_scalar('Acc/val', acc_val, epoch)
-        writer.add_scalar('F1_macro/val', macro_val, epoch)
-        writer.add_scalar('F1_micro/val', micro_val, epoch)
     writer.close()
     
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    acc_test, macro_test, micro_test = test()
+    acc_test = test()
     
     print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print('Student test acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
+    print('Student test acc:{:.2f}'.format(acc_test*100))
     print('Training Time: ', result_time[0])

@@ -13,19 +13,32 @@ from pathlib import Path
 import dgl
 from models.model_KD import *
 from models.model_utils import *
+from models.PLP import *
 
-from data.utils import load_tensor_data
+from data.utils import load_tensor_data, initialize_label
 from data.get_dataset import get_experiment_config
 
 from utils.metrics import accuracy
 from sklearn.metrics import f1_score
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def arg_parse(parser):
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='cora', help='dateset')
     parser.add_argument('--student', default='GCNII', help='model type')
-    parser.add_argument('--mustad', action='store_true', default=False, help='is KD method MustaD?')
+    parser.add_argument('--mustad', type=str2bool, nargs='?', const=True, default=False, help='is KD method MustaD?')
     parser.add_argument('--device', type=int, default=0, help='CUDA Device')
+    parser.add_argument('--ptype', type=str, default='ind', help='plp type: ind(inductive); tra(transductive/onehot)')
+    parser.add_argument('--mlp_layers', type=int, default=2, help='MLP layer, 0 means not add feature mlp/lr')
     return parser.parse_args()
 
 def choose_model(conf):
@@ -82,6 +95,20 @@ def choose_model(conf):
                       lamda=conf['lamda'],
                       alpha=conf['alpha'],
                       variant=False).to(conf['device'])
+    elif conf['model_name'] == 'PLP':
+        model = PLP(g=G,
+                    num_layers=conf['num_layers'],
+                    in_dim=G.ndata['feat'].shape[1],
+                    emb_dim=conf['reduced_dim'],
+                    num_classes=labels.max().item() + 1,
+                    activation=F.relu,
+                    feat_drop=conf['dropout'],
+                    attn_drop=conf['att_dropout'],
+                    residual=False,
+                    byte_idx_train=byte_idx_train,
+                    labels_one_hot=labels_one_hot,
+                    ptype=conf['ptype'],
+                    mlp_layers=conf['mlp_layers']).to(conf['device'])
     return model
 
 def train():
@@ -90,24 +117,33 @@ def train():
     if conf['model_name'] == 'GCN':
         output, _ = model(G.ndata['feat'])
     elif conf['model_name'] == 'GAT':
-        output, _, _ = model(G.ndata['feat'])[0:1]
+        output, _ = model(G.ndata['feat'])[0:2]
     elif conf['model_name'] == 'GraphSAGE':
         output, _ = model(G, G.ndata['feat'])
     elif conf['model_name'] == 'GCNII':
         output, _ = model(features, adj)
+    elif conf['model_name'] == 'PLP':
+        output, _ = model(G.ndata['feat'], labels_init)[0:2]
+        
+        output = F.log_softmax(output, dim=1)
+        
+        acc_train = accuracy(output[idx_no_train], labels[idx_no_train].to(conf['device']))
+        loss_train = F.nll_loss(output[idx_no_train], labels[idx_no_train].to(conf['device']))
+        loss_train.backward()
+        optimizer.step()
+        
+        return loss_train.item(), acc_train.item()
     else:
         raise ValueError(f'Undefined Model')
+    
     output = F.log_softmax(output, dim=1)
-    out = np.argmax(output.detach().cpu(), axis=1)
     
     acc_train = accuracy(output[idx_train], labels[idx_train].to(conf['device']))
-    f1_macro = f1_score(labels[idx_train].detach().cpu(), out, average='macro')
-    f1_micro = f1_score(labels[idx_train].detach().cpu(), out, average='micro')
     loss_train = F.nll_loss(output[idx_train], labels[idx_train].to(conf['device']))
     loss_train.backward()
     optimizer.step()
     
-    return loss_train.item(), acc_train.item(), f1_macro, f1_micro
+    return loss_train.item(), acc_train.item()
 
 def validate():
     model.eval()
@@ -122,18 +158,17 @@ def validate():
             output, _ = model(G, G.ndata['feat'])
         elif conf['model_name'] == 'GCNII':
             output, _ = model(features, adj)
+        elif conf['model_name'] == 'PLP':
+            output, _ = model(G.ndata['feat'], labels_init)[0:2]
         else:
             raise ValueError(f'Undefined Model')
 
         output = F.log_softmax(output, dim=1)
-        out = np.argmax(output.detach().cpu(), axis=1)
         
         acc_val = accuracy(output[idx_val], labels[idx_val].to(conf['device']))
-        f1_macro = f1_score(labels[idx_val].detach().cpu(), out, average='macro')
-        f1_micro = f1_score(labels[idx_val].detach().cpu(), out, average='micro')
         loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(conf['device']))
 
-    return loss_val.item(), acc_val.item(), f1_macro, f1_micro
+    return loss_val.item(), acc_val.item()
 
 def test():
     model.load_state_dict(torch.load(checkpt_file))
@@ -142,23 +177,22 @@ def test():
         if conf['model_name'] == 'GCN':
             output, _ = model(G.ndata['feat'])
         elif conf['model_name'] == 'GAT':
-            output, _, _ = model(G.ndata['feat'])[0:1]
+            output, _ = model(G.ndata['feat'])[0:2]
         elif conf['model_name'] == 'GraphSAGE':
             output, _ = model(G, G.ndata['feat'])
         elif conf['model_name'] == 'GCNII':
             output, _ = model(features, adj)
+        elif conf['model_name'] == 'PLP':
+            output, _ = model(G.ndata['feat'], labels_init)[0:2]
         else:
             raise ValueError(f'Undefined Model')
         
         output = F.log_softmax(output, dim=1)
-        out = np.argmax(output.detach().cpu(), axis=1)
         
         acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
-        f1_macro = f1_score(labels[idx_test].detach().cpu(), out, average='macro')
-        f1_micro = f1_score(labels[idx_test].detach().cpu(), out, average='micro')
         loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(conf['device']))
         
-    return loss_test.item(), acc_test.item(), f1_macro, f1_micro
+    return loss_test.item(), acc_test.item()
 
 if __name__ == '__main__':
     # argument parse
@@ -182,11 +216,10 @@ if __name__ == '__main__':
     print(conf)
     
     # check point file path
-    checkpt_file = "./student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
-    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])+".pth"
+    checkpt_file = "./student/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+".pth"
     
     # tensorboard name
-    board_name = "Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    board_name = "Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
     writer = SummaryWriter("./Log/Log_student/"+board_name)
     
     # random seed
@@ -205,6 +238,12 @@ if __name__ == '__main__':
     
     features = features.to(conf['device'])
     adj = adj.to(conf['device'])
+    
+    idx_no_train = torch.LongTensor(
+        np.setdiff1d(np.array(range(len(labels))), idx_train.cpu())).to(conf['device'])
+    byte_idx_train = torch.zeros_like(labels_one_hot, dtype=torch.bool).to(conf['device'])
+    byte_idx_train[idx_train] = True
+    labels_init = initialize_label(idx_train, labels_one_hot).to(conf['device'])
     
     model = choose_model(conf)
     if conf['model_name'] == 'GCNII':
@@ -225,43 +264,37 @@ if __name__ == '__main__':
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train, macro_train, micro_train = train()
-        loss_val, acc_val, macro_val, micro_val = validate()
+        loss_train, acc_train = train()
+        loss_val, acc_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
-            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
+            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
             acc = acc_val
-            f1_macro = macro_val
-            f1_micro = micro_val
             torch.save(model.state_dict(), checkpt_file)
             bad_counter = 0
         else:
             bad_counter += 1
 
-        if bad_counter == 50: # modify patience 200 -> 50
+        if bad_counter == 200: # modify patience 200 -> 50
             break
         
         # write
         writer.add_scalar('Loss/train', loss_train, epoch)
         writer.add_scalar('Acc/train', acc_train, epoch)
-        writer.add_scalar('F1_macro/train', macro_train, epoch)
-        writer.add_scalar('F1_micro/train', micro_train, epoch)
         
         writer.add_scalar('Loss/val', loss_val, epoch)
         writer.add_scalar('Acc/val', acc_val, epoch)
-        writer.add_scalar('F1_macro/val', macro_val, epoch)
-        writer.add_scalar('F1_micro/val', micro_val, epoch)
     writer.close()
     
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    loss_test, acc_test, macro_test, micro_test = test()
+    loss_test, acc_test = test()
     
     print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
+    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100))
     print('Training Time: ', result_time[0])

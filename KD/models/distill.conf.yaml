@@ -5,6 +5,7 @@ global:
   ground: False
   nlayer: 5
   features: 8710
+  weight_decay: 0.001
 
 # specific configurations of each model
 GCN:

@@ -15,8 +15,8 @@ GCN:
   att: False
   layer_flag: False
 GAT:
-  num_layers: 8
-  hidden: 128
+  num_layers: 3
+  hidden: 256
   learning_rate: 0.01
   dropout: 0.6
   att_dropout: 0.3

@@ -99,16 +99,13 @@ def train():
         raise ValueError(f'Undefined Model')
     
     output = F.log_softmax(output, dim=1)
-    out = np.argmax(output.detach().cpu(), axis=1)
     
     acc_train = accuracy(output[idx_train], labels[idx_train].to(conf['device']))
-    f1_macro = f1_score(labels[idx_train].detach().cpu(), out, average='macro')
-    f1_micro = f1_score(labels[idx_train].detach().cpu(), out, average='micro')
     loss_train = F.nll_loss(output[idx_train], labels[idx_train].to(conf['device']))
     loss_train.backward()
     optimizer.step()
     
-    return loss_train.item(), acc_train.item(), f1_macro, f1_micro
+    return loss_train.item(), acc_train.item()
 
 def validate():
     model.eval()
@@ -127,14 +124,11 @@ def validate():
             raise ValueError(f'Undefined Model')
 
         output = F.log_softmax(output, dim=1)
-        out = np.argmax(output.detach().cpu(), axis=1)
         
         acc_val = accuracy(output[idx_val], labels[idx_val].to(conf['device']))
-        f1_macro = f1_score(labels[idx_val].detach().cpu(), out, average='macro')
-        f1_micro = f1_score(labels[idx_val].detach().cpu(), out, average='micro')
         loss_val = F.nll_loss(output[idx_val], labels[idx_val].to(conf['device']))
 
-    return loss_val.item(), acc_val.item(), f1_macro, f1_micro
+    return loss_val.item(), acc_val.item()
 
 def test():
     model.load_state_dict(torch.load(checkpt_file))
@@ -152,14 +146,11 @@ def test():
             raise ValueError(f'Undefined Model')
         
         output = F.log_softmax(output, dim=1)
-        out = np.argmax(output.detach().cpu(), axis=1)
         
         acc_test = accuracy(output[idx_test], labels[idx_test].to(conf['device']))
-        f1_macro = f1_score(labels[idx_test].detach().cpu(), out, average='macro')
-        f1_micro = f1_score(labels[idx_test].detach().cpu(), out, average='micro')
         loss_test = F.nll_loss(output[idx_test], labels[idx_test].to(conf['device']))
         
-    return loss_test.item(), acc_test.item(), f1_macro, f1_micro
+    return loss_test.item(), acc_test.item()
 
 if __name__ == '__main__':
     # argument parse
@@ -180,11 +171,10 @@ if __name__ == '__main__':
     print(conf)
     
     # check point file path
-    checkpt_file = "./teacher/Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
-    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])+".pth"
+    checkpt_file = "./teacher/Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+".pth"
     
     # tensorboard name
-    board_name = "Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"+str(conf['num_layers'])
+    board_name = "Teacher_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
     writer = SummaryWriter("./Log/Log_teacher/"+board_name)
     
     # random seed
@@ -223,17 +213,15 @@ if __name__ == '__main__':
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train, macro_train, micro_train = train()
-        loss_val, acc_val, macro_val, micro_val = validate()
+        loss_train, acc_train = train()
+        loss_val, acc_val = validate()
         if (epoch + 1) % 10 == 0:
-            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),'f1_macro:{:.2f}'.format(macro_train), 'f1_micro:{:.2f}'.format(micro_train),
-            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100), 'f1_macro:{:.2f}'.format(macro_val), 'f1_micro:{:.2f}'.format(micro_val))
+            print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),
+            '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100))
         if loss_val < best:
             best = loss_val
             best_epoch = epoch
             acc = acc_val
-            f1_macro = macro_val
-            f1_micro = micro_val
             torch.save(model.state_dict(), checkpt_file)
             bad_counter = 0
         else:
@@ -245,21 +233,17 @@ if __name__ == '__main__':
         # write
         writer.add_scalar('Loss/train', loss_train, epoch)
         writer.add_scalar('Acc/train', acc_train, epoch)
-        writer.add_scalar('F1_macro/train', macro_train, epoch)
-        writer.add_scalar('F1_micro/train', micro_train, epoch)
         
         writer.add_scalar('Loss/val', loss_val, epoch)
         writer.add_scalar('Acc/val', acc_val, epoch)
-        writer.add_scalar('F1_macro/val', macro_val, epoch)
-        writer.add_scalar('F1_micro/val', micro_val, epoch)
     writer.close()
     
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    loss_test, acc_test, macro_test, micro_test = test()
+    loss_test, acc_test = test()
     
     print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
-    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100), 'f1_macro:{:.2f}'.format(macro_test), 'f1_micro:{:.2f}'.format(micro_test))
+    print('Test loss:{:.2f}'.format(loss_test), 'acc:{:.2f}'.format(acc_test*100))
     print('Training Time: ', result_time[0])
