@@ -80,10 +80,8 @@ class GCNII(nn.Module):
         layer_inner = self.act_fn(self.fcs[0](x))
         _layers.append(layer_inner)
         for i, con in enumerate(self.convs):
-            layer_inner = F.dropout(
-                layer_inner, self.dropout, training=self.training)
-            layer_inner = self.act_fn(
-                con(layer_inner, adj, _layers[0], self.lamda, self.alpha, i + 1))
+            layer_inner = F.dropout(layer_inner, self.dropout, training=self.training)
+            layer_inner = self.act_fn(con(layer_inner, adj, _layers[0], self.lamda, self.alpha, i + 1))
         hidden_emb = F.dropout(layer_inner,self.dropout, training=self.training)
         layer_inner = self.fcs[-1](hidden_emb)
         return layer_inner, hidden_emb
@@ -142,8 +140,9 @@ class GAT(nn.Module):
         for l in range(self.num_layers):
             # [num_head, node_num, nclass] -> [num_head, node_num*nclass]
             h, att = self.gat_layers[l](self.g, h)
+            if l == len(range(self.num_layers))-1:
+                prior = h.mean(1)
             h = h.flatten(1)
-        prior = h.mean(1)
         # output projection
         logits, att = self.gat_layers[-1](self.g, h)
         logits = logits.mean(1)

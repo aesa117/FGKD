@@ -10,14 +10,6 @@ from dgl.nn.pytorch import GraphConv
 
 class GraphConvolution(nn.Module):
     def __init__(self, in_features, out_features, residual=False, variant=False):
-        """
-        Construct GCNII layer
-
-        :param in_features: input dimension
-        :param out_features: output dimension
-        :param residual: ratio of residual connection
-        :param variant: variant version introduced in GCNII
-        """
         super(GraphConvolution, self).__init__()
         self.variant = variant
         if self.variant:
@@ -31,24 +23,10 @@ class GraphConvolution(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        """
-        Reset parameters
-        
-        :return: none
-        """
         stdv = 1. / math.sqrt(self.out_features)
         self.weight.data.uniform_(-stdv, stdv)
 
     def forward(self, input, adj , h0 , lamda, alpha, l):
-        """
-        Compute a GCNII layer
-        
-        :param input: input feature
-        :param adj: adjacency matrix
-        :param lamda: ratio of lamda
-        :param alpha: alpha
-        :param l: l^{th} layer in an overall model
-        """
         theta = math.log(lamda/l+1)
         hi = torch.spmm(adj, input)
         if self.variant:
@@ -64,19 +42,6 @@ class GraphConvolution(nn.Module):
 
 class GCNII_student(nn.Module):
     def __init__(self, nfeat, nlayers, nhidden, thidden, nclass, dropout, lamda, alpha, variant):
-        """
-        Constructor of GCNII student model
-
-        :param nfeat: input dimension
-        :param nlayers: number of layers
-        :param nhidden: student's hidden feature dimension
-        :param thidden: teacher's hidden feature dimension
-        :param nclass: number of output class
-        :param dropout: ratio of dropout
-        :param dropout: ratio of lamda
-        :param alpha: alpha
-        :param variant: variant version introduced in GCNII
-        """
         super(GCNII_student, self).__init__()
         self.convs = nn.ModuleList()
         self.convs.append(GraphConvolution(nhidden, nhidden,variant=variant))
@@ -93,17 +58,8 @@ class GCNII_student(nn.Module):
         self.tlayers = nlayers
         self.nhidden = nhidden
         self.thidden = thidden
-        if self.nhidden != self.thidden:
-            self.match_dim = nn.Linear(nhidden, thidden)
 
     def forward(self, x, adj):
-        """
-        Forward x into class
-
-        :param x: input node features
-        :param adj: adjacency matrix
-        :return: task prediction, last hidden embedding
-        """
         _layers = []
         x = F.dropout(x, self.dropout, training=self.training)
         layer_inner = self.act_fn(self.fcs[0](x))
@@ -113,8 +69,6 @@ class GCNII_student(nn.Module):
             layer_inner = self.act_fn(self.convs[0](layer_inner,adj,_layers[0],self.lamda,self.alpha,i+1))
         hidden_emb = F.dropout(layer_inner, self.dropout, training=self.training)
         layer_inner = self.fcs[-1](hidden_emb)
-        if self.nhidden != self.thidden:
-            hidden_emb = self.match_dim(hidden_emb)
 
         return layer_inner, hidden_emb
 
@@ -135,8 +89,6 @@ class GraphSAGE_student(nn.Module):
         self.t_layers = n_layers
         self.n_hidden = n_hidden
         self.t_hidden = t_hidden
-        if self.n_hidden != self.t_hidden:
-            self.match_dim = nn.Linear(n_hidden, t_hidden)
 
     def forward(self, graph, inputs):
         h = self.dropout(inputs)
@@ -164,27 +116,26 @@ class GAT_student(nn.Module):
             feat_drop, attn_drop, negative_slope, False, self.activation))
         # hidden layers
         self.gat_layers.append(GATConv(
-            num_hidden, num_hidden, heads[1], 
+            num_hidden * heads[0], num_hidden, heads[1], 
             feat_drop, attn_drop, negative_slope, residual, self.activation))
         # output projection
         self.gat_layers.append(GATConv(
-            num_hidden * heads[-2], num_classes, heads[-1],
+            num_hidden * heads[1], num_classes, heads[-1],
             feat_drop, attn_drop, negative_slope, residual, None))
         
         self.t_layers = num_layers
         self.n_hidden = num_hidden
         self.t_hidden = t_hidden
-        if self.n_hidden != self.t_hidden:
-            self.match_dim = nn.Linear(num_hidden, t_hidden)
 
     def forward(self, inputs):
         h = inputs
         h, att = self.gat_layers[0](self.g, h)
-        for i in range(self.t_layers):
+        for i in range(self.t_layers - 2):
             # [num_head, node_num, nclass] -> [num_head, node_num*nclass]
             h, att = self.gat_layers[1](self.g, h)
+            if i == len(range(self.t_layers)) - 3:
+                prior = h.mean(1)
             h = h.flatten(1)
-        prior = h.mean(1)
         # output projection
         logits, att = self.gat_layers[-1](self.g, h)
         logits = logits.mean(1)
@@ -206,8 +157,6 @@ class GCN_student(nn.Module):
         self.t_layers = n_layers
         self.n_hidden = n_hidden
         self.t_hidden = t_hidden
-        if self.n_hidden != self.t_hidden:
-            self.match_dim = nn.Linear(n_hidden, t_hidden)
 
 
     def forward(self, features):

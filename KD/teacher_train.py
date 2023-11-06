@@ -40,20 +40,20 @@ def choose_model(conf):
             activation=F.relu,
             dropout=conf['dropout']).to(conf['device'])
     elif conf['model_name'] =='GAT':
-        num_heads = 8
+        num_heads = conf['num_heads']
         num_layers = conf['num_layers']
         num_out_heads = 1
         heads = ([num_heads] * num_layers) + [num_out_heads]
         model = GAT(g=G,
                     num_layers=num_layers,
                     in_dim=features.shape[1],
-                    num_hidden=8,
+                    num_hidden=conf['hidden'],
                     num_classes=labels.max().item() + 1,
                     heads=heads,
                     activation=F.relu,
-                    feat_drop=0.6,
-                    attn_drop=0.6,
-                    negative_slope=0.2,     # negative slope of leaky relu
+                    feat_drop=conf['dropout'],
+                    attn_drop=conf['att_dropout'],
+                    negative_slope=conf['alpha'],     # negative slope of leaky relu
                     residual=False).to(conf['device'])
     elif conf['model_name'] == 'GraphSAGE':
         model = GraphSAGE(in_feats=features.shape[1],
@@ -61,7 +61,7 @@ def choose_model(conf):
                           n_classes=labels.max().item() + 1,
                           n_layers=conf['num_layers'],
                           activation=F.relu,
-                          dropout=0.5,
+                          dropout=conf['dropout'],
                           aggregator_type=conf['agg_type']).to(conf['device'])
     elif conf['model_name'] == 'GCNII':
         if conf['dataset'] == 'citeseer':
@@ -239,7 +239,7 @@ if __name__ == '__main__':
     writer.close()
     
     end = time.time()
-    result_time = str(datetime.timedelta(seconds=end-start)).split(".")
+    result_time = str(datetime.timedelta(seconds=(end-start))).split(".")
     
     loss_test, acc_test = test()
     

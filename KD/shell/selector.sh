@@ -1,2 +1,1 @@
 python3 -u selector_pretrain.py --lr 0.01 --wd 0.001 --margin 0.3 --ms1 300 --ms2 600 --gm 0.1 --nlayer 5
-python3 -u selector_pretrain.py --large true --lr 0.01 --wd 0.001 --margin 0.3 --ms1 300 --ms2 600 --gm 0.1 --nlayer 5

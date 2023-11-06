@@ -39,6 +39,61 @@ def kl_kernel(t_x, s_x):
     s_x = F.log_softmax(s_x, dim=1)
     return torch.mean(torch.sum(kl_loss_op(s_x, t_x), dim=1))
 
+def choose_teacher(conf, teacher_conf):
+    if teacher_conf['model_name'] == 'GCN':
+        model = GCN(
+            g=G,
+            in_feats=features.shape[1],
+            n_hidden=teacher_conf['hidden'],
+            n_classes=labels.max().item() + 1,
+            n_layers=teacher_conf['num_layers'],
+            activation=F.relu,
+            dropout=teacher_conf['dropout']).to(conf['device'])
+    elif teacher_conf['model_name'] =='GAT':
+        num_heads = teacher_conf['num_heads']
+        num_layers = teacher_conf['num_layers']
+        num_out_heads = 1
+        heads = ([num_heads] * num_layers) + [num_out_heads]
+        model = GAT(g=G,
+                    num_layers=num_layers,
+                    in_dim=features.shape[1],
+                    num_hidden=teacher_conf['hidden'],
+                    num_classes=labels.max().item() + 1,
+                    heads=heads,
+                    activation=F.relu,
+                    feat_drop=teacher_conf['dropout'],
+                    attn_drop=teacher_conf['att_dropout'],
+                    negative_slope=teacher_conf['alpha'],     # negative slope of leaky relu
+                    residual=False).to(conf['device'])
+    elif teacher_conf['model_name'] == 'GraphSAGE':
+        model = GraphSAGE(in_feats=features.shape[1],
+                          n_hidden=teacher_conf['embed_dim'],
+                          n_classes=labels.max().item() + 1,
+                          n_layers=teacher_conf['num_layers'],
+                          activation=F.relu,
+                          dropout=teacher_conf['dropout'],
+                          aggregator_type=teacher_conf['agg_type']).to(conf['device'])
+    elif teacher_conf['model_name'] == 'GCNII':
+        if conf['dataset'] == 'citeseer':
+            teacher_conf['hidden'] = 256
+            teacher_conf['lamda'] = 0.6
+            teacher_conf['dropout'] = 0.7
+        elif conf['dataset'] == 'pubmed':
+            teacher_conf['hidden'] = 256
+            teacher_conf['lamda'] = 0.4
+            teacher_conf['dropout'] = 0.5
+        model = GCNII(nfeat=features.shape[1],
+                      nlayers=teacher_conf['layer'],
+                      nhidden=teacher_conf['hidden'],
+                      nclass=labels.max().item() + 1,
+                      dropout=teacher_conf['dropout'],
+                      lamda=teacher_conf['lamda'],
+                      alpha=teacher_conf['alpha'],
+                      variant=False).to(conf['device'])
+    else:
+        raise ValueError(f'Undefined Model.')
+    return model
+
 def choose_model(conf):
     if conf['model_name'] == 'GCN':
         model = GCN(
@@ -69,19 +124,17 @@ def choose_model(conf):
         model = GraphSAGE(in_feats=features.shape[1],
                           n_hidden=conf['embed_dim'],
                           n_classes=labels.max().item() + 1,
-                          n_layers=conf['layer'],
+                          n_layers=conf['num_layers'],
                           activation=F.relu,
                           dropout=conf['dropout'],
                           aggregator_type=conf['agg_type']).to(conf['device'])
     elif conf['model_name'] == 'GCNII':
-        if args.dataset == 'citeseer':
+        if conf['dataset'] == 'citeseer':
             conf['hidden'] = 64
-            teacher_conf['hidden'] = 256
             conf['lamda'] = 0.6
             conf['dropout'] = 0.7
-        elif args.dataset == 'pubmed':
+        elif conf['dataset'] == 'pubmed':
             conf['hidden'] = 64
-            teacher_conf['hidden'] = 256
             conf['lamda'] = 0.4
             conf['dropout'] = 0.5
         model = GCNII(nfeat=features.shape[1],
@@ -96,45 +149,50 @@ def choose_model(conf):
         raise ValueError(f'Undefined Model.')
     return model
 
-def selector_model_init(conf):
-    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        embedding_size = 128
-        inout_size = 32
-    else: # GraphSAGE
-        embedding_size = 256
-        inout_size = 64
+def selector_model_init(conf, selector_path):
+    embedding_size = 256
+    out_size = 64
     
-    selector_model = MLP(num_layers=conf['nlayer'],
-                         input_dim=inout_size,
+    selector_model = MLP(num_layers=5,
+                         input_dim=8710, # number of features in CoraFull
                          hidden_dim=embedding_size, 
-                         output_dim=inout_size,
+                         output_dim=40, # number of classes
                          dropout=0.5)
     
-    # delete first layer & final layer
+    selector_model.load_state_dict(torch.load(selector_path))
+    
+    # replace first layer & final layer
     selector_model.layers = selector_model.layers[1:-1]
-    input = nn.Linear(inout_size, embedding_size)
-    output = nn.Linear(embedding_size, inout_size)
+    input = nn.Linear(embedding_size, embedding_size)
+    output = nn.Linear(embedding_size, out_size)
     selector_model.layers = nn.Sequential(input, *selector_model.layers, output)
     
     return selector_model
 
-def train():
+def train(masks, conf, teacher_conf, model, teacher):
     teacher.eval()
     model.train()
     optimizer.zero_grad()
 
     if conf['model_name'] == 'GCN':
-        t_output, t_hidden = teacher(G.ndata['feat'])
         s_output, s_hidden = model(G.ndata['feat'])
     elif conf['model_name'] == 'GAT':
-        t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
         s_output, s_hidden = model(G.ndata['feat'])[0:2]
     elif conf['model_name'] == 'GraphSAGE':
-        t_output, t_hidden = teacher(G, G.ndata['feat'])
         s_output, s_hidden = model(G, G.ndata['feat'])
     elif conf['model_name'] == 'GCNII':
-        t_output, t_hidden = teacher(features, adj)
         s_output, s_hidden = model(features, adj)
+    else:
+        raise ValueError(f'Undefined Model')
+    
+    if teacher_conf['model_name'] == 'GCN':
+        t_output, t_hidden = teacher(G.ndata['feat'])
+    elif teacher_conf['model_name'] == 'GAT':
+        t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
+    elif teacher_conf['model_name'] == 'GraphSAGE':
+        t_output, t_hidden = teacher(G, G.ndata['feat'])
+    elif teacher_conf['model_name'] == 'GCNII':
+        t_output, t_hidden = teacher(features, adj)
     else:
         raise ValueError(f'Undefined Model')
 
@@ -158,7 +216,7 @@ def train():
     loss_task = kl_kernel(t_y, s_y)
 
     # loss_hidden
-    t_x = masked_t_hidden
+    t_x = torch.squeeze(masked_t_hidden)
     s_x = s_hidden[idx_train]
     loss_hidden = kl_kernel(t_x, s_x)
 
@@ -167,38 +225,44 @@ def train():
     loss_train.backward()
     optimizer.step()
 
-    return loss_train.item(), acc_train.item(), sel_loss
+    return loss_train.item(), acc_train.item(), sel_loss, updated_masks
 
-def validate():
+def validate(masks, conf, teacher_conf, model, teacher):
     teacher.eval()
     model.eval()
 
     with torch.no_grad():
-        # loss_CE
         if conf['model_name'] == 'GCN':
-            t_output, t_hidden = teacher(G.ndata['feat'])
             s_output, s_hidden = model(G.ndata['feat'])
         elif conf['model_name'] == 'GAT':
-            t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
             s_output, s_hidden = model(G.ndata['feat'])[0:2]
         elif conf['model_name'] == 'GraphSAGE':
-            t_output, t_hidden = teacher(G, G.ndata['feat'])
             s_output, s_hidden = model(G, G.ndata['feat'])
         elif conf['model_name'] == 'GCNII':
-            t_output, t_hidden = teacher(features, adj)
             s_output, s_hidden = model(features, adj)
+        else:
+            raise ValueError(f'Undefined Model')
+        
+        if teacher_conf['model_name'] == 'GCN':
+            t_output, t_hidden = teacher(G.ndata['feat'])
+        elif teacher_conf['model_name'] == 'GAT':
+            t_output, t_hidden = teacher(G.ndata['feat'])[0:2]
+        elif teacher_conf['model_name'] == 'GraphSAGE':
+            t_output, t_hidden = teacher(G, G.ndata['feat'])
+        elif teacher_conf['model_name'] == 'GCNII':
+            t_output, t_hidden = teacher(features, adj)
         else:
             raise ValueError(f'Undefined Model')
         
         s_out = F.log_softmax(s_output, dim=1)
         
         loss_CE = F.nll_loss(s_out[idx_val], labels[idx_val].to(conf['device']))
-        acc_val = accuracy(s_out[idx_val], labels[idx_train].to(conf['device']))
+        acc_val = accuracy(s_out[idx_val], labels[idx_val].to(conf['device']))
         
         # mask selection - validation and extract masks for clustering score
         updated_masks, sel_loss = selection_val(selector_model, t_hidden[idx_val], labels[idx_val], selector_loss, selector_optimizer, masks, num_masks, mask_size, unmask_size)
         best_mask = updated_masks[0]
-        hidden_embedding = t_hidden[idx_train]
+        hidden_embedding = t_hidden[idx_val]
         
         idx = torch.nonzero(best_mask!=0).T
         masked_t_hidden = hidden_embedding[:, idx]
@@ -209,16 +273,16 @@ def validate():
         loss_task = kl_kernel(t_y, s_y)
 
         # loss_hidden
-        t_x = masked_t_hidden
+        t_x = torch.squeeze(masked_t_hidden)
         s_x = s_hidden[idx_val]
         loss_hidden = kl_kernel(t_x, s_x)
 
         # loss_final- lbd_pred, lbe_embd are still not defined
         loss_val = loss_CE + args.lbd_pred*loss_task + args.lbd_embd*loss_hidden
     
-    return loss_val.item(), acc_val.item(), sel_loss
+    return loss_val.item(), acc_val.item(), sel_loss, updated_masks
 
-def test():
+def test(conf, checkpt_file, model):
     model.load_state_dict(torch.load(checkpt_file))
     model.eval()
     
@@ -273,21 +337,11 @@ if __name__ == '__main__':
     # check point file path
     t_PATH = "./teacher/Teacher_"+str(teacher_conf['model_name'])+"dataset_"+str(conf['dataset'])+".pth"
     
-    if conf['model_name'] in ['GCN', 'GCNII', 'GAT']:
-        selector_path = "./selector/MLP_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
-        mask_size = 32
-        unmask_size = 96
-    elif conf['model_name'] == 'GraphSAGE':
-        selector_path = "./selector/MLP_large_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1400_ms2800_gm0.1.pth"
-        mask_size = 64
-        unmask_size = 192
-    
     checkpt_file = "./KD/HKD/Student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])
-    checkpt_file += str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])+"_nl:"
     checkpt_file += "lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])+".pth"
     
     # tensorboard name
-    board_name = "KD_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"_lr:"+str(conf['learning_rate'])+"_wd:"+str(conf['weight_decay'])
+    board_name = "KD_student_"+str(conf['model_name'])+"dataset_"+str(conf['dataset'])+"lbd_pred:"+str(conf['lbd_pred'])+"lbd_embd"+str(conf['lbd_embd'])
     writer = SummaryWriter("./Log/Log_KD/"+board_name)
 
     # Load data
@@ -303,7 +357,7 @@ if __name__ == '__main__':
     adj = adj.to(conf['device'])
 
     # choose model type & setting optimizer for model
-    teacher = choose_model(teacher_conf)
+    teacher = choose_teacher(conf, teacher_conf)
     teacher.load_state_dict(torch.load(t_PATH))
     teacher.eval()
     model = choose_model(conf)
@@ -319,20 +373,22 @@ if __name__ == '__main__':
         optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=conf['learning_rate'],
                                weight_decay=conf['weight_decay'])
     
+    # initialize mask
+    num_masks = conf['mask']
+    mask_size = 64
+    unmask_size = 256-mask_size
+    masks = get_new_random_masks(num_masks, mask_size, unmask_size)
+    masks = torch.Tensor(masks).to(conf['device'])
+    
     # selector model generate
-    selector_model = selector_model_init(conf)
-    selector_model.load_state_dict(torch.load(selector_path))
+    selector_path = "./selector/MLP_lr:0.01_wd:0.001_mg:0.3_nl:5_ms1300_ms2600_gm0.1.pth"
+    selector_model = selector_model_init(conf, selector_path)
     selector_model = selector_model.to(conf['device'])
     selector_loss = losses.TripletMarginLoss(margin=0.3, 
                                             swap=False,
                                             smooth_loss=False,
                                             triplets_per_anchor="all",).to(conf['device'])
     selector_optimizer = optim.Adam(filter(lambda p: p.requires_grad, selector_model.parameters()), lr=0.001, weight_decay=0.001)
-    
-    # initialize mask
-    num_masks = conf['mask']
-    masks = get_new_random_masks(num_masks, mask_size, unmask_size)
-    masks = torch.Tensor(masks).to(conf['device'])
     
     
     start = time.time()
@@ -341,8 +397,8 @@ if __name__ == '__main__':
     best_epoch = 0
     acc = 0
     for epoch in range(500):
-        loss_train, acc_train, sel_train = train()
-        loss_val, acc_val, sel_val = validate()
+        loss_train, acc_train, sel_train, masks = train(masks, conf, teacher_conf, model, teacher)
+        loss_val, acc_val, sel_val, masks = validate(masks, conf, teacher_conf, model, teacher)
         if (epoch + 1) % 10 == 0:
             print('Epoch:{:04d}'.format(epoch+1),'train:','loss:{:.3f}'.format(loss_train), 'acc:{:.2f}'.format(acc_train*100),
             '| val','loss:{:.3f}'.format(loss_val), 'acc:{:.2f}'.format(acc_val*100))
@@ -370,7 +426,7 @@ if __name__ == '__main__':
     end = time.time()
     result_time = str(datetime.timedelta(seconds=end-start)).split(".")
     
-    acc_test = test()
+    acc_test = test(conf, checkpt_file, model)
     
     print('The number of parameters in the teacher: {:04d}'.format(count_params(model)))
     print('Load {}th epoch'.format(best_epoch))
