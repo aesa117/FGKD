@@ -8,7 +8,7 @@ global:
 
 # specific configurations of each model
 GCN:
-  num_layers: 6
+  num_layers: 3
   hidden: 64
   learning_rate: 0.01
   dropout: 0.8
@@ -28,23 +28,11 @@ GAT:
   num_heads: 3
   att: True
   layer_flag: False
-GraphSAGE:
-  agg_type: 'gcn'   # mean/gcn/pool/lstm
-  embed_dim: 64
-  num_layers: 4
-  dropout: 0.5
-  batch_size: 256
-  num_samples: 10
-  learning_rate: 0.01
-  weight_decay: 0.0005
-#  optimizer: 'SGD'
-  att: False
-  layer_flag: False
 GCNII:
   learning_rate: 0.01
   wd1: 0.01
   wd2: 0.0005
-  layer: 16
+  layer: 6
   hidden: 64
   dropout: 0.6
   alpha: 0.1

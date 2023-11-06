@@ -29,29 +29,17 @@ GAT:
   num_heads: 4
   att: True
   layer_flag: False
-GraphSAGE:
-  agg_type: 'gcn'   # mean/gcn/pool/lstm
-  embed_dim: 64
-  num_layers: 3
-  dropout: 0.6
-  batch_size: 256
-  num_samples: 5
-  learning_rate: 0.01
-  weight_decay: 0.0005
-#  optimizer: 'SGD'
-  att: False
-  layer_flag: False
 GCNII:
   learning_rate: 0.01
   wd1: 0.01
   wd2: 0.0005
-  layer: 8
+  layer: 6
   hidden: 64
   dropout: 0.6
   alpha: 0.1
   lamda: 0.5
 PLP:
-  num_layers: 10
+  num_layers: 6
   reduced_dim: 64
   learning_rate: 0.01
   dropout: 0.8
