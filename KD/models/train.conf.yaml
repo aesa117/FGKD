@@ -28,7 +28,7 @@ GAT:
   layer_flag: False
 GraphSAGE:
   agg_type: 'gcn'   # mean/gcn/pool/lstm
-  num_layers: 4
+  num_layers: 2
   dropout: 0.6
   embed_dim: 256
   batch_size: 256
