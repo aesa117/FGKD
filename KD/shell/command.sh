@@ -22,3 +22,6 @@ python3 -u CPF.py --dataset pubmed --teacher GCNII --student GCNII --lbd_embd 1 
 
 # Selector Model pretrain
 python3 -u selector_pretrain.py --lr 0.01 --wd 0.001 --margin 0.3 --ms1 500 --ms2 750 --gm 0.1 --nlayer 5
+
+# tensorboard
+tensorboard --logdir=Log/Log_sel --port=6007
